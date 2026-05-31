@@ -1,0 +1,19 @@
+menuconfig RT_USING_DRIVER_IVSHMEM
+    bool "Inter-VM shared memory"
+    default n
+
+if RT_USING_DRIVER_IVSHMEM
+    menuconfig RT_USING_IVSHMEM_NET
+        bool "Net"
+        select RT_USING_SAL
+        select RT_USING_LWIP
+        select RT_USING_NETDEV
+        default n
+
+    if RT_USING_IVSHMEM_NET
+        config RT_USING_IVSHMEM_NET_CACHE
+	        bool "Ivshmem Net using CACHE or not"
+	        default n
+    endif
+
+endif

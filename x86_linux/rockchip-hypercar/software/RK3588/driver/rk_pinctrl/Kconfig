@@ -1,0 +1,5 @@
+config RT_PINCTRL_ROCKCHIP
+    bool "Rockchip gpio and pinctrl driver"
+    depends on RT_USING_PINCTRL
+    select RT_MFD_SYSCON
+    default n

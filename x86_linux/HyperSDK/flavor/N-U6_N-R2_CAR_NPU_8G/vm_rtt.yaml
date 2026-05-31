@@ -1,0 +1,201 @@
+name: "rt-thread"
+role: 
+  work_type: ["RVM"]
+  start_type: LBVM
+
+cpu:
+  - name: "vcpu@6"
+    type: "virt_cpu"
+    args:
+      - "pcpu=string,cpu@6"
+      - "vm_cpu_idx=32u,0x6"
+
+  - name: "vcpu@7"
+    type: "virt_cpu"
+    args:
+      - "pcpu=string,cpu@7"
+      - "vm_cpu_idx=32u,0x7"
+
+mem:
+  - pool: none
+    size: 512
+    gpa: 0x29000000
+    hpa: 0x29000000
+    attr: ["RWX","WB","SHARE"]
+
+vper:
+  - name: "vpt@intc1"
+    type: "virt_intc"
+    args:
+      - "pintc=string,pintc@0"
+
+  - name: "vpt@timer-irq1"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,timer-irq1"
+
+  - name: "vpt@timer1"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,timer1"
+
+  - name: "vpt@uart1"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,uart1"
+
+  - name: "vpt@pwm12-15@febf0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,pwm12@febf0000"
+
+  - name: "vpt@pwm8-11@febe0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,pwm8@febe0000"
+
+  - name: "vpt@syscon@fd5f0000rtt"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5f0000rtt"
+
+  # - name: "vpt@gpio@fd8a0000rtt-mem"
+  #   type: "virt_passthrough"
+  #   args:
+  #     - "pdev=string,gpio@fd8a0000rtt-mem"
+
+  # - name: "vpt@gpio@fd8a0000rtt-irq"
+  #   type: "virt_passthrough"
+  #   args:
+  #     - "pdev=string,gpio@fd8a0000rtt-irq"
+
+  - name: "vpt@gpio@fec20000rtt-mem"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fec20000rtt-mem"
+
+  - name: "vpt@gpio@fec20000rtt-irq"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fec20000rtt-irq"
+
+  - name: "vpt@gpio@fec30000rtt-mem"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fec30000rtt-mem"
+
+  - name: "vpt@gpio@fec30000rtt-irq"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fec30000rtt-irq"
+
+  - name: "vpt@gpio@fec40000rtt-mem"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fec40000rtt-mem"
+
+  - name: "vpt@gpio@fec40000rtt-irq"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fec40000rtt-irq"
+
+  - name: "vpt@gpio@fec50000rtt-mem"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fec50000rtt-mem"
+
+  - name: "vpt@gpio@fec50000rtt-irq"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fec50000rtt-irq"
+
+  - name: "vpt@clock-controller@fd7c0000-2"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,clock-controller@fd7c0000"
+
+  - name: "vpt@serial@feba0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,serial@feba0000"
+
+  - name: "vpt@serial@feb70000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,serial@feb70000"
+
+fpo:
+  - name: "pcie_host1@4b0000000"
+    type: "emu_pcie_host_generic"
+    mem: "0x4b0000000,0x10000000"
+    int: 
+      - int_attr: [0x00,0x3f,0x04]
+        parent: "pintc@0"
+      - int_attr: [0x00,0x40,0x04]
+      - int_attr: [0x00,0x41,0x04]
+      - int_attr: [0x00,0x42,0x04]
+    args: 
+      - "bus_range=8u,0x0,0x0"
+      - "range=64u,0x03000000,0x4c0000000,0x4c0000000,0x100000"
+      - "vendor_id=16u,0x1b36"
+      - "device_id=16u,0x0008"
+      - "legacy_irq=bool,true"
+      - "pseudo=bool,true"
+
+  # - name: "pcie_ivshmem@2"
+  #   type: "emu_pcie_dev_ivshmem"
+  #   args: 
+  #     - "host=string,pcie_host1@4b0000000"
+  #     - "pcie_type=string,normal"
+  #     - "pcie_permit=32u,0xFFFFFFFF"
+  #     - "bdf=16u,0x0020"
+  #     - "vendor_id=16u,0x1af4"
+  #     - "device_id=16u,0x1110"
+  #     - "class=16u,0x0500"
+  #     - "sub_vendor_id=16u,0x1af4"
+  #     - "sub_device_id=16u,0x1110"
+  #     - "msix_vector_nr=16u,0x10"
+  #     - "using_64bit=bool,true"
+  #     - "legacy_irq=bool,true"
+  #     - "pseudo=bool,true"
+  #     - "backend=string,shm@1"
+
+  - name: "pcie_ivshmem@nic-front0"
+    type: "emu_pcie_dev_ivshmem"
+    args:
+      - "host=string,pcie_host1@4b0000000"
+      - "pcie_type=string,normal"
+      - "pcie_permit=32u,0xFFFFFFFF"
+      - "bdf=16u,0x0028"
+      - "vendor_id=16u,0x1af4"
+      - "device_id=16u,0x1110"
+      - "class=16u,0x0200"
+      - "sub_vendor_id=16u,0x1af4"
+      - "sub_device_id=16u,0x1110"
+      - "msix_vector_nr=16u,0x10"
+      - "using_64bit=bool,true"
+      - "legacy_irq=bool,true"
+      - "intx_pin=8u,0x01"
+      - "pseudo=bool,true"
+      - "backend=string,shm@2"
+      - "shm_gpa=64u,0xa00000"
+      - "shm_flag=string,WR|RD|EXE|WB"
+
+bpo: none
+
+bootcfg:
+  boot_type: FDT
+  kernel:
+    name: "rtthread.bin"
+    load_addr: 0x29000000
+    exec_addr: 0x0
+
+  fdt:
+    name: "rt_thread.dtb"
+    load_addr: 0x29a00000
+    exec_addr: 0x0
+
+  initrd: 
+    name: none
+    load_addr: none
+    exec_addr: none

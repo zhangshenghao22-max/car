@@ -1,0 +1,4 @@
+config RT_PWM_ROCKCHIP
+    bool "Rockchip Pwm driver"
+    depends on RT_USING_PWM
+    default n

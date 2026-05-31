@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% if page_mode == "mapping" %}建图{% else %}导航{% endif %} - 小车云平台</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260422a') }}" />
+  </head>
+  <body data-page="{{ page_mode }}" data-command-token="{{ command_token }}">
+    <div class="app-shell">
+      <header class="hero">
+        <div>
+          <div class="hero-kicker">Car Cloud</div>
+          <h1 id="page-title">{% if page_mode == "mapping" %}建图{% else %}导航{% endif %}</h1>
+          <p id="board-meta">页面会自动刷新，显示当前小车状态。</p>
+        </div>
+        <div class="hero-actions">
+          <a class="ghost-link" href="/">主菜单</a>
+          <button id="btn-refresh" type="button">刷新</button>
+        </div>
+      </header>
+
+      <section class="status-row">
+        <article class="status-card">
+          <span>连接状态</span>
+          <strong id="board-online">离线</strong>
+          <small id="last-seen">-</small>
+        </article>
+        <article class="status-card">
+          <span>当前模式</span>
+          <strong id="mode-text">等待中</strong>
+          <small id="mode-detail">-</small>
+        </article>
+        <article class="status-card nav-only">
+          <span>导航状态</span>
+          <strong id="nav-text">未开始</strong>
+          <small id="goal-text">-</small>
+        </article>
+        <article class="status-card">
+          <span>数据更新时间</span>
+          <strong id="upload-age">-</strong>
+          <small id="frame-age">-</small>
+        </article>
+      </section>
+
+      <main class="main-grid">
+        <article class="panel panel-map" id="map-panel">
+          <div class="panel-head">
+            <div>
+              <h2>{% if page_mode == "mapping" %}实时地图{% else %}导航地图{% endif %}</h2>
+              <p id="map-caption">{% if page_mode == "mapping" %}开始建图后，这里会显示实时地图。{% else %}开始导航后，这里会显示地图和路径。{% endif %}</p>
+            </div>
+            <span class="pill" id="map-meta">等待地图</span>
+          </div>
+          <div class="map-tools">
+            <button id="map-zoom-out" type="button" class="subtle-btn">-</button>
+            <button id="map-zoom-reset" type="button" class="subtle-btn">100%</button>
+            <button id="map-zoom-in" type="button" class="subtle-btn">+</button>
+            <span class="map-tools-hint">Wheel to zoom, drag to pan</span>
+          </div>
+          <div class="frame-shell large" id="map-shell">
+            <div class="image-stack" id="map-stack">
+              <img id="map-frame" alt="map frame" />
+              <canvas id="map-overlay"></canvas>
+            </div>
+            <div class="placeholder" id="map-placeholder">
+              {% if page_mode == "mapping" %}点击“开始建图”后这里会显示地图图像{% else %}开始导航后这里会显示地图和路径{% endif %}
+            </div>
+          </div>
+          <div class="summary-box" id="path-summary">等待地图数据</div>
+        </article>
+
+        <article class="panel mapping-only" id="scan-panel">
+          <div class="panel-head">
+            <div>
+              <h2>雷达图像</h2>
+              <p>开始建图后，这里会显示实时雷达扫描。</p>
+            </div>
+          </div>
+          <div class="frame-shell">
+            <img id="scan-frame" alt="scan frame" />
+            <div class="placeholder" id="scan-placeholder">点击“开始建图”后这里会显示雷达图像</div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>{% if page_mode == "mapping" %}建图状态{% else %}导航状态{% endif %}</h2>
+              <p>只保留当前最关键的信息。</p>
+            </div>
+          </div>
+          <dl class="simple-list" id="car-summary"></dl>
+        </article>
+
+        <article class="panel command-panel">
+          <div class="panel-head">
+            <div>
+              <h2>命令下发</h2>
+              <p>直接控制板端启动或停止当前流程。</p>
+            </div>
+          </div>
+
+          <div class="command-actions mapping-only">
+            <button id="cmd-start-mapping" type="button">开始建图</button>
+            <button id="cmd-stop-mapping" type="button" class="subtle-btn">停止建图</button>
+          </div>
+
+          <div class="command-save-row mapping-only">
+            <input id="map-save-input" type="text" placeholder="地图名，可留空自动生成" />
+            <button id="cmd-save-map" type="button">保存地图</button>
+          </div>
+
+          <div class="teleop-card mapping-only">
+            <div class="teleop-head">
+              <div>
+                <strong>键盘控制</strong>
+                <p>点击接管后，用键盘在建图页直接控制小车。</p>
+              </div>
+              <span class="pill" id="teleop-status">未接管</span>
+            </div>
+            <div class="teleop-actions">
+              <button id="teleop-enable" type="button">接管键盘</button>
+              <button id="teleop-disable" type="button" class="subtle-btn">退出控制</button>
+            </div>
+            <div class="teleop-speed-row">
+              <button id="teleop-speed-down" type="button" class="subtle-btn">-</button>
+              <span id="teleop-speed-label">速度 2</span>
+              <button id="teleop-speed-up" type="button" class="subtle-btn">+</button>
+            </div>
+            <div class="teleop-key-grid" id="teleop-key-grid">
+              <span class="teleop-key" id="teleop-key-w">W</span>
+              <span class="teleop-key" id="teleop-key-a">A</span>
+              <span class="teleop-key" id="teleop-key-s">S</span>
+              <span class="teleop-key" id="teleop-key-d">D</span>
+              <span class="teleop-key" id="teleop-key-q">Q</span>
+              <span class="teleop-key" id="teleop-key-e">E</span>
+              <span class="teleop-key teleop-key-stop" id="teleop-key-space">空格急停</span>
+            </div>
+            <div class="summary-block teleop-summary" id="teleop-summary">
+              开始建图后，点击“接管键盘”，再用 W/S 前后、A/D 横移、Q/E 旋转。
+            </div>
+          </div>
+
+          <div class="nav-map-load nav-only">
+            <select id="saved-map-select">
+              <option value="">暂无已保存地图</option>
+            </select>
+            <button id="btn-load-saved-map" type="button" class="subtle-btn">加载已保存地图</button>
+          </div>
+
+          <div class="command-actions nav-only">
+            <input id="nav-map-input" type="text" placeholder="输入地图名或 yaml 名" />
+            <button id="cmd-start-navigation" type="button">开始导航</button>
+            <button id="cmd-stop-navigation" type="button" class="subtle-btn">停止导航</button>
+          </div>
+
+                    <div class="nav-editor nav-only">
+            <div class="nav-editor-head">
+              <strong>网页标点</strong>
+              <span id="nav-click-hint">先加载地图，再选择标点模式，然后直接在地图上点击。</span>
+            </div>
+            <div class="nav-mark-actions">
+              <button id="nav-mark-start" type="button" class="subtle-btn">标起点</button>
+              <button id="nav-mark-waypoint" type="button" class="subtle-btn">加巡航点</button>
+              <button id="nav-mark-stop" type="button" class="subtle-btn">停止选点</button>
+            </div>
+            <div class="nav-yaw-row">
+              <input id="nav-yaw-input" type="number" step="1" value="0" placeholder="朝向角度，默认 0" />
+              <button id="nav-draft-clear" type="button" class="subtle-btn">清空点列</button>
+            </div>
+            <div class="nav-draft-list" id="nav-draft-list">暂无起点和巡航点</div>
+            <div class="nav-cruise-actions">
+              <button id="cmd-send-start-pose" type="button" class="subtle-btn">下发起点</button>
+              <button id="cmd-start-single-goal" type="button">发单目标</button>
+              <button id="cmd-start-cruise" type="button">开始巡航</button>
+              <button id="cmd-stop-cruise" type="button" class="subtle-btn">停止巡航</button>
+            </div>
+          </div>
+
+          <details class="command-history-wrap">
+            <summary>指令历史</summary>
+            <div class="command-history" id="command-history">还没有指令记录</div>
+          </details>
+        </article>
+
+        <article class="panel nav-only">
+          <div class="panel-head">
+            <div>
+              <h2>路线信息</h2>
+              <p>查看当前是否已经规划出路径。</p>
+            </div>
+          </div>
+          <div class="summary-block" id="nav-route-summary">Route: waiting</div>
+          <div class="summary-block" id="nav-start-summary">起点位姿：等待中</div>
+          <div class="summary-block" id="nav-goal-summary">终点位姿：等待中</div>
+          <div class="summary-block" id="nav-cruise-summary">巡航状态：等待中</div>
+          <div class="summary-block" id="saved-map-summary">Saved maps: waiting</div>
+        </article>
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js', v='20260423b') }}"></script>
+  </body>
+</html>

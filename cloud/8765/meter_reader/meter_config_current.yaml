@@ -1,0 +1,9 @@
+min_value: 0.0
+max_value: 1.0
+center:
+- 263.0
+- 406.0
+zero_angle: 123.05857648961725
+full_angle: 50.71059313749964
+canonical_size: 512
+rectify_mode: resize

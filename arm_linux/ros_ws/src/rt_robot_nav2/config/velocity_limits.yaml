@@ -1,0 +1,67 @@
+# 统一速度限制配置文件
+# Unified Velocity Limits Configuration
+# 所有节点和launch文件都应该从这里读取速度限制参数
+# All nodes and launch files should read velocity limits from here
+
+# 版本历史:
+# v1.0 - 初始版本: max_vel_x/y = 0.4 m/s
+# v2.0 - 降低到 0.3 m/s 以提高稳定性
+
+velocity_limits:
+  ros__parameters:
+    # Linear velocity limits (m/s)
+    max_linear_x: 0.3              # Maximum linear velocity in X direction (forward/backward)
+                                    # Range: -0.3 ~ 0.3 m/s
+                                    # Reduced from 0.4 to 0.3 for better stability on weak hardware
+
+    max_linear_y: 0.3              # Maximum linear velocity in Y direction (lateral/left-right)
+                                    # Range: -0.3 ~ 0.3 m/s
+                                    # Reduced from 0.4 to 0.3 for better stability on weak hardware
+
+    max_linear_z: 0.0              # Z-axis linear velocity (not used for ground robots)
+
+    # Angular velocity limits (rad/s)
+    max_angular_z: 0.5             # Maximum angular velocity in Z direction (rotation)
+                                    # Range: -0.5 ~ 0.5 rad/s (~28.6 degrees/s)
+                                    # LIMIT: Do not exceed 0.5 rad/s to prevent TF drift
+
+    # Combined speed limits
+    max_speed_xy: 0.3              # Maximum combined linear speed (sqrt(vx^2 + vy^2))
+                                    # Reduced from 0.4 to 0.3 m/s
+
+    # Velocity step sizes (for keyboard teleop)
+    linear_velocity_step: 0.1      # Step size for linear velocity changes (m/s)
+    angular_velocity_step: 0.1     # Step size for angular velocity changes (rad/s)
+
+    # Acceleration limits (for Nav2 controller)
+    acc_lim_x: 0.5                 # X direction acceleration limit (m/s²)
+    acc_lim_y: 0.0                 # Y direction acceleration limit (m/s²)
+    acc_lim_z: 0.0                 # Z direction acceleration limit (m/s²)
+    acc_lim_theta: 0.9             # Angular acceleration limit (rad/s²)
+
+    # Deceleration limits
+    decel_lim_x: -0.5              # X direction deceleration limit (m/s²)
+    decel_lim_y: -0.0              # Y direction deceleration limit (m/s²)
+    decel_lim_z: -0.0              # Z direction deceleration limit (m/s²)
+    decel_lim_theta: -0.9          # Angular deceleration limit (rad/s²)
+
+# 使用说明 / Usage Instructions:
+#
+# 1. 在launch文件中加载此配置:
+#    velocity_limits_config = os.path.join(rt_robot_nav2_dir, 'config', 'velocity_limits.yaml')
+#    Node(
+#        package='chassis_controller',
+#        executable='keyboard_teleop',
+#        parameters=[velocity_limits_config]
+#    )
+#
+# 2. 或者在参数文件中包含此文件:
+#    在其他yaml文件中使用 $(find rt_robot_nav2)/config/velocity_limits.yaml
+#
+# 3. 修改速度限制时，只修改这一个文件即可
+#
+# 注意事项 / Notes:
+# - 修改这些值后需要重新构建: colcon build
+# - 降低速度可以提高稳定性但会增加导航时间
+# - 提高速度需要更强的硬件性能
+# - max_angular_z 不要超过 0.5 rad/s 以防止TF漂移

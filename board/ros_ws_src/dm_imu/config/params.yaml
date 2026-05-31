@@ -1,0 +1,19 @@
+dm_imu:
+  ros__parameters:
+    port: /dev/imu
+    baudrate: 921600
+    frame_id: imu_link
+
+    # 三个话题的发布开关
+    publish_imu_data: true   # 必须为true，imu_to_tf需要此话题
+    publish_rpy: true
+    publish_pose: true
+
+    # RPY 的单位（true=度，false=弧度）
+    publish_rpy_in_degree: true
+
+    # QoS 配置 - 与 odom_fusion 的 SensorDataQoS 匹配
+    # odom_fusion 使用 rclcpp::SensorDataQoS() = BEST_EFFORT
+    # 因此 IMU 也应该使用 BEST_EFFORT 以匹配 QoS，避免消息丢失
+    qos_reliable: false      # 改为 false 以使用 BEST_EFFORT QoS
+    verbose: false

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>数据展示 - 电眸智巡</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260521-ir-sound1') }}" />
+  </head>
+  <body class="data-body" data-page="data">
+    <div class="app-shell data-shell">
+      <header class="hero">
+        <div>
+          <div class="hero-kicker">Cabinet Data</div>
+          <h1>数据展示</h1>
+          <p id="data-page-meta">查看配电柜面板状态和柜内环境数据。</p>
+        </div>
+        <div class="hero-actions">
+          <a class="ghost-link" href="/">主菜单</a>
+          <button id="btn-refresh-data" type="button">刷新</button>
+        </div>
+      </header>
+
+      <section class="status-row data-status-row">
+        <article class="status-card">
+          <span>连接状态</span>
+          <strong id="cabinet-online">离线</strong>
+          <small id="cabinet-last-seen">等待数据</small>
+        </article>
+        <article class="status-card">
+          <span>电压表</span>
+          <strong id="voltage-status-value">-- V</strong>
+          <small id="voltage-status-text">未上报</small>
+        </article>
+        <article class="status-card">
+          <span>电流表</span>
+          <strong id="current-status-value">-- A</strong>
+          <small id="current-status-text">未上报</small>
+        </article>
+        <article class="status-card">
+          <span>柜内环境</span>
+          <strong id="env-status-value">--</strong>
+          <small id="env-status-text">烟雾 / 氢气 / 一氧化碳 / 温湿度 / 红外测温 / 声音</small>
+        </article>
+      </section>
+
+      <main class="data-grid">
+        <article class="panel cabinet-panel-card">
+          <div class="panel-head">
+            <div>
+              <h2>柜面状态</h2>
+              <p>按现场柜门照片展示电压、电流、温控、启停按钮和选择开关。</p>
+            </div>
+            <span class="pill" id="cabinet-updated-at">等待上报</span>
+          </div>
+
+          <div class="cabinet-board">
+            <section class="instrument-row">
+              <div class="instrument-card" data-kind="voltage">
+                <div class="instrument-title">电压表</div>
+                <strong id="voltage-value">-- V</strong>
+                <small id="voltage-state">未上报</small>
+              </div>
+
+              <div class="instrument-card" data-kind="current">
+                <div class="instrument-title">电流表</div>
+                <strong id="current-value">-- A</strong>
+                <small id="current-state">未上报</small>
+              </div>
+
+              <div class="temperature-controller">
+                <div class="instrument-title">温控表</div>
+                <div class="temp-display">
+                  <span>PV</span>
+                  <strong id="temp-pv">-- ℃</strong>
+                </div>
+                <div class="temp-display muted-display">
+                  <span>SV</span>
+                  <strong id="temp-sv">-- ℃</strong>
+                </div>
+                <small id="temp-controller-state">未上报</small>
+              </div>
+            </section>
+
+            <section class="control-row">
+              <div class="lamp-card start-lamp" id="motor1-start-card">
+                <span class="lamp-dot"></span>
+                <strong>1#启动</strong>
+                <small id="motor1-start-text">未触发</small>
+              </div>
+              <div class="lamp-card stop-lamp" id="motor1-stop-card">
+                <span class="lamp-dot"></span>
+                <strong>1#停止</strong>
+                <small id="motor1-stop-text">未触发</small>
+              </div>
+              <div class="selector-card">
+                <strong>1#选择开关</strong>
+                <div class="selector-positions" id="motor1-mode">
+                  <span data-mode="手动">手动</span>
+                  <span data-mode="关闭">关闭</span>
+                </div>
+              </div>
+
+              <div class="lamp-card start-lamp" id="motor2-start-card">
+                <span class="lamp-dot"></span>
+                <strong>2#启动</strong>
+                <small id="motor2-start-text">未触发</small>
+              </div>
+              <div class="lamp-card stop-lamp" id="motor2-stop-card">
+                <span class="lamp-dot"></span>
+                <strong>2#停止</strong>
+                <small id="motor2-stop-text">未触发</small>
+              </div>
+              <div class="selector-card">
+                <strong>2#选择开关</strong>
+                <div class="selector-positions" id="motor2-mode">
+                  <span data-mode="手动">手动</span>
+                  <span data-mode="关闭">关闭</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="cabinet-bottom-row">
+              <div class="warning-card" id="high-voltage-card">
+                <div class="warning-icon">⚡</div>
+                <div>
+                  <strong>小心有电</strong>
+                  <small id="high-voltage-text">状态未上报</small>
+                </div>
+              </div>
+              <div class="door-card" id="door-card">
+                <strong>柜门状态</strong>
+                <span id="door-state">未上报</span>
+              </div>
+            </section>
+          </div>
+        </article>
+
+        <aside class="side-column">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>柜内环境</h2>
+                <p>烟雾、氢气、一氧化碳、温湿度、红外测温和声音监测。</p>
+              </div>
+            </div>
+            <div class="sensor-grid">
+              <div class="sensor-card" id="smoke-card">
+                <span>柜内烟雾浓度</span>
+                <strong id="smoke-value">-- ppm</strong>
+                <small id="smoke-status">未上报</small>
+              </div>
+              <div class="sensor-card" id="hydrogen-card">
+                <span>氢气浓度</span>
+                <strong id="hydrogen-value">-- ppm</strong>
+                <small id="hydrogen-status">未上报</small>
+              </div>
+              <div class="sensor-card" id="carbon-monoxide-card">
+                <span>一氧化碳浓度</span>
+                <strong id="carbon-monoxide-value">-- ppm</strong>
+                <small id="carbon-monoxide-status">未上报</small>
+              </div>
+              <div class="sensor-card wide-sensor" id="temperature-humidity-card">
+                <span>温湿度</span>
+                <strong id="temperature-humidity-value">-- ℃ / -- %RH</strong>
+                <small id="temperature-humidity-status">未上报</small>
+              </div>
+              <div class="sensor-card" id="infrared-temperature-card">
+                <span>红外测温模块</span>
+                <strong id="infrared-temperature-value">-- ℃</strong>
+                <small id="infrared-temperature-status">未上报</small>
+              </div>
+              <div class="sensor-card" id="sound-level-card">
+                <span>声音监测模块</span>
+                <strong id="sound-level-value">-- dB</strong>
+                <small id="sound-level-status">未上报</small>
+              </div>
+            </div>
+          </article>
+        </aside>
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='data_display.js', v='20260521-ir-sound1') }}"></script>
+    {% if sandbox %}
+    <script src="{{ url_for('static', filename='data_display_sandbox.js', v='20260430-sandbox2') }}"></script>
+    {% endif %}
+  </body>
+</html>

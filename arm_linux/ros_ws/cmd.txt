@@ -1,0 +1,7 @@
+建图：ros2 launch rt_robot_nav2 rt_robot_nav2_complete.launch.py use_slam:=true use_nav:=false open_rviz:=true
+
+键盘控制：ros2 run chassis_controller keyboard_teleop
+
+保存地图：ros2 launch rt_robot_nav2 save_map.launch.py map_name:=my_map
+
+导航（使用指定地图）：ros2 launch rt_robot_nav2 rt_robot_nav2_complete.launch.py use_slam:=false use_nav:=true map_file:=my_map.yaml open_rviz:=true

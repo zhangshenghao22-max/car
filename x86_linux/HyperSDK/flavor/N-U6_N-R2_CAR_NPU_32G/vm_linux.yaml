@@ -1,0 +1,764 @@
+name: "linux"
+
+role: 
+  work_type: ["NVM"]
+  start_type: LBVM
+
+cpu:
+  - name: "vcpu@0"
+    type: "virt_cpu"
+    args:
+      - "pcpu=string,cpu@0"
+      - "vm_cpu_idx=32u,0x0"
+
+  - name: "vcpu@1"
+    type: "virt_cpu"
+    args:
+      - "pcpu=string,cpu@1"
+      - "vm_cpu_idx=32u,0x1"
+
+  - name: "vcpu@2"
+    type: "virt_cpu"
+    args:
+      - "pcpu=string,cpu@2"
+      - "vm_cpu_idx=32u,0x2"
+
+  - name: "vcpu@3"
+    type: "virt_cpu"
+    args:
+      - "pcpu=string,cpu@3"
+      - "vm_cpu_idx=32u,0x3"
+
+  - name: "vcpu@4"
+    type: "virt_cpu"
+    args:
+      - "pcpu=string,cpu@4"
+      - "vm_cpu_idx=32u,0x4"
+
+  - name: "vcpu@5"
+    type: "virt_cpu"
+    args:
+      - "pcpu=string,cpu@5"
+      - "vm_cpu_idx=32u,0x5"
+
+mem:
+  - pool: none
+    #size: [main length(unit:M),second length(unit:K)],second length 4K aligned
+    #size: [main length(unit:G),second length(unit:M)]
+    #size: main length(unit:G/M)
+    size: 448
+    #gpa:[high 32bit addr,low 32bit addr],addr 4K aligned
+    gpa: 0xca00000
+    hpa: 0xca00000
+    attr: ["RWX","WB","SHARE"]
+  - pool: none
+    size: [2G,256]
+    gpa: 0x50000000
+    hpa: 0x50000000
+    attr: ["RWX","WB","SHARE"]
+  - pool: none
+    size: [11G,960]
+    gpa: 0x100000000
+    hpa: 0x100000000
+    attr: ["RWX","WB","SHARE"]
+  - pool: none
+    size: 16G
+    gpa: 0x400000000
+    hpa: 0x400000000
+    attr: ["RWX","WB","SHARE"]
+
+vper:
+  - name: "vpt@intc0"
+    type: "virt_intc"
+    args:
+      - "pintc=string,pintc@0"
+
+  # - name: "timer2"
+  - name: "vpt@timer-irq2"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,timer-irq2"
+
+  - name: "vpt@dmc"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,dmc"
+
+  - name: "vpt@gpu"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpu"
+
+  - name: "vpt@usb1"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,usb1"
+
+  - name: "vpt@usb2"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,usb2"
+
+  - name: "vpt@usb3"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,usb3"
+
+  - name: "vpt@usb4"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,usb4"
+
+  - name: "vpt@syscon1"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon1"
+
+  - name: "vpt@syscon2"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon2"
+
+  - name: "vpt@syscon3"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon3"
+
+  - name: "vpt@i2c"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,i2c"
+
+  - name: "vpt@npu@fdab0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,npu@fdab0000"
+
+  - name: "vpt@vdpu"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,vdpu"
+
+  - name: "vpt@rga@fdb60000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,rga@fdb60000"
+
+  - name: "vpt@rga@fdb70000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,rga@fdb70000"
+
+  - name: "vpt@rga@fdb80000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,rga@fdb80000"
+
+  - name: "vpt@jpegd@fdb90000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,jpegd@fdb90000"
+
+  - name: "vpt@jpege-core@fdba0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,jpege-core@fdba0000"
+
+  - name: "vpt@jpege-core@fdba4000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,jpege-core@fdba4000"
+
+  - name: "vpt@jpege-core@fdba8000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,jpege-core@fdba8000"
+
+  - name: "vpt@jpege-core@fdbac000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,jpege-core@fdbac000"
+
+  - name: "vpt@iep@fdbb0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,iep@fdbb0000"
+
+  - name: "vpt@rkvenc-core@fdbd0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,rkvenc-core@fdbd0000"
+
+  - name: "vpt@iommu@fdbdf000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,iommu@fdbdf000"
+
+  - name: "vpt@rkvenc-core@fdbe0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,rkvenc-core@fdbe0000"
+
+  - name: "vpt@iommu@fdbef000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,iommu@fdbef000"
+
+  - name: "vpt@rkvdec-core@fdc38000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,rkvdec-core@fdc38000"
+
+  - name: "vpt@rkvdec-core@fdc48000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,rkvdec-core@fdc48000"
+
+  - name: "vpt@vop@fdd90000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,vop@fdd90000"
+
+  - name: "vpt@dp@fde50000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,dp@fde50000"
+
+  - name: "vpt@hdmi@fde80000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,hdmi@fde80000"
+
+  - name: "vpt@spi@fe2b0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,spi@fe2b0000"
+
+  - name: "vpt@mmc@fe2c0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,mmc@fe2c0000"
+
+  - name: "vpt@mmc@fe2d0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,mmc@fe2d0000"
+
+  - name: "vpt@mmc@fe2e0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,mmc@fe2e0000"
+
+  - name: "vpt@dma-controller@fea10000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,dma-controller@fea10000"
+
+  - name: "vpt@dma-controller@fea30000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,dma-controller@fea30000"
+
+  - name: "vpt@i2c@fea90000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,i2c@fea90000"
+
+  - name: "vpt@i2c@feac0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,i2c@feac0000"
+
+  - name: "vpt@spi@feb20000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,spi@feb20000"
+
+  - name: "vpt@tsadc@fec00000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,tsadc@fec00000"
+
+  - name: "vpt@saradc@fec10000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,saradc@fec10000"
+
+  - name: "vpt@i2c@fec80000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,i2c@fec80000"
+
+  - name: "vpt@i2c@fec90000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,i2c@fec90000"
+
+  - name: "vpt@dma-controller@fed10000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,dma-controller@fed10000"
+
+  - name: "vpt@syscon@fd5d4000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5d4000"
+
+  - name: "vpt@hdmi@fdea0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,hdmi@fdea0000"
+
+  - name: "vpt@hdmirx-controller@fdee0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,hdmirx-controller@fdee0000"
+
+  - name: "vpt@av1d@fdc70000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,av1d@fdc70000"
+
+  - name: "vpt@usb@fcd00000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,usb@fcd00000"
+
+  - name: "vpt@usb@fc400000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,usb@fc400000"
+
+  - name: "vpt@gpio@fd8a0000-mem"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fd8a0000-mem"
+
+  - name: "vpt@gpio@fd8a0000-irq"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fd8a0000-irq"
+
+  - name: "vpt@gpio@fec20000-mem"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fec20000-mem"
+
+  # - name: "vpt@gpio@fec20000-irq"
+  #   type: "virt_passthrough"
+  #   args:
+  #     - "pdev=string,gpio@fec20000-irq"
+
+  - name: "vpt@gpio@fec30000-mem"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fec30000-mem"
+
+  # - name: "vpt@gpio@fec30000-irq"
+  #   type: "virt_passthrough"
+  #   args:
+  #     - "pdev=string,gpio@fec30000-irq"
+
+  - name: "vpt@gpio@fec40000-mem"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fec40000-mem"
+
+  # - name: "vpt@gpio@fec40000-irq"
+  #   type: "virt_passthrough"
+  #   args:
+  #     - "pdev=string,gpio@fec40000-irq"
+
+  - name: "vpt@gpio@fec50000-mem"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,gpio@fec50000-mem"
+
+  # - name: "vpt@gpio@fec50000-irq"
+  #   type: "virt_passthrough"
+  #   args:
+  #     - "pdev=string,gpio@fec50000-irq"
+
+  - name: "vpt@arm-pmu"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,arm-pmu"
+
+  - name: "vpt@clock-controller@fd7c0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,clock-controller@fd7c0000"
+
+  - name: "vpt@syscon@fd58c000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd58c000"
+
+  - name: "vpt@syscon@fd5e4000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5e4000"
+
+  - name: "vpt@debug@fd104000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,debug@fd104000"
+
+  - name: "vpt@ramoops@110000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,ramoops@110000"
+
+  - name: "vpt@power-management@fd8d8000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,power-management@fd8d8000"
+
+  - name: "vpt@syscon@fd5f0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5f0000"
+
+  - name: "vpt@qos@fdf66000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,qos@fdf66000"
+
+  - name: "vpt@qos@fdf67000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,qos@fdf67000"
+
+  - name: "vpt@qos@fdf36000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,qos@fdf36000"
+
+  - name: "vpt@qos@fdf60000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,qos@fdf60000"
+
+  - name: "vpt@qos@fdf61000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,qos@fdf61000"
+
+  - name: "vpt@qos@fdf62000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,qos@fdf62000"
+
+  - name: "vpt@qos@fdf63000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,qos@fdf63000"
+
+  - name: "vpt@sram@10f000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,sram@10f000"
+
+  - name: "vpt@otp@fecc0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,otp@fecc0000"
+
+  - name: "vpt@syscon@fd5b0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5b0000"
+
+  - name: "vpt@syscon@fd5b8000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5b8000"
+
+  - name: "vpt@phy@fed80000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,phy@fed80000"
+
+  - name: "vpt@hdmiphy@fed70000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,hdmiphy@fed70000"
+
+  - name: "vpt@phy@fed90000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,phy@fed90000"
+
+  - name: "vpt@pwm@fd8b0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,pwm@fd8b0000"
+
+  - name: "vpt@syscon@fd5a8000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5a8000"
+
+  - name: "vpt@qos@fdf64000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,qos@fdf64000"
+
+  - name: "vpt@usb@fc000000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,usb@fc000000"
+
+  - name: "vpt@syscon@fd5c8000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5c8000"
+
+  - name: "vpt@syscon@fd5ac000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5ac000"
+
+  - name: "vpt@qos@fdf3e000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,qos@fdf3e000"
+
+  - name: "vpt@phy@fee20000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,phy@fee20000"
+
+  - name: "vpt@phy@fee00000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,phy@fee00000"
+
+  - name: "vpt@syscon@fd5cc000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5cc000"
+
+  - name: "vpt@syscon@fd588000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd588000"
+
+  - name: "vpt@syscon@fd58a000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd58a000"
+
+  - name: "vpt@qos@fdf39000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,qos@fdf39000"
+
+  - name: "vpt@i2s@fddf0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,i2s@fddf0000"
+
+  - name: "vpt@i2s@fe470000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,i2s@fe470000"
+
+  - name: "vpt@i2s@fddf4000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,i2s@fddf4000"
+
+  - name: "vpt@i2s@fddf8000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,i2s@fddf8000"
+
+  - name: "vpt@qos@fdf3d800"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,qos@fdf3d800"
+
+  - name: "vpt@syscon@fd5a4000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5a4000"
+
+  - name: "vpt@syscon@fd5e0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5e0000"
+
+  - name: "vpt@0x100000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,0x100000"
+
+  - name: "vpt@rng@fe378000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,rng@fe378000"
+
+  - name: "vpt@syscon@fd5a0000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5a0000"
+
+  - name: "vpt@0x101000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,0x101000"
+
+  - name: "vpt@0x102000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,0x102000"
+
+  - name: "vpt@qos@fdf35000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,qos@fdf35000"
+
+  - name: "vpt@dfi@fe060000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,dfi@fe060000"
+
+  - name: "vpt@syscon@fd5a2000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5a2000"
+
+  - name: "vpt@syscon@fd5a6000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd5a6000"
+
+  - name: "vpt@qos@fdf70000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,qos@fdf70000"
+
+  - name: "vpt@phy@fed60000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,phy@fed60000"
+
+  - name: "vpt@syscon@fd594000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd594000"
+
+  - name: "vpt@syscon@fd590000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd590000"
+
+  - name: "vpt@syscon@fd592000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,syscon@fd592000"
+
+  - name: "vpt@cspmu@fd10c000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,cspmu@fd10c000"
+
+  - name: "vpt@pcie@fe190000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,pcie@fe190000"
+
+  - name: "vpt@phy@fee10000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,phy@fee10000"
+
+  - name: "vpt@pcie@fe170000"
+    type: "virt_passthrough"
+    args:
+      - "pdev=string,pcie@fe170000"
+
+fpo:
+  - name: "pcie_host@8d0000000"
+    type: "emu_pcie_host_generic"
+    mem: "0x8d0000000,0x10000000"
+    int: 
+      - int_attr: [0x00,0x3a,0x04]
+        parent: "pintc@0"
+      - int_attr: [0x00,0x3b,0x04]
+      - int_attr: [0x00,0x3c,0x04]
+      - int_attr: [0x00,0x3d,0x04]
+    args: 
+      - "bus_range=8u,0xFF,0xFF"
+      - "range=64u,0x03000000,0x8f0000000,0x8f0000000,0x100000"
+      - "vendor_id=16u,0x1b36"
+      - "device_id=16u,0x0008"
+      - "legacy_irq=bool,true"
+      - "pseudo=bool,true"
+
+  # - name: "pcie_ivshmem@1"
+  #   type: "emu_pcie_dev_ivshmem"
+  #   args: 
+  #     - "host=string,pcie_host@4d0000000"
+  #     - "pcie_type=string,normal"
+  #     - "pcie_permit=32u,0xFFFFFFFF"
+  #     - "bdf=16u,0xff20"
+  #     - "vendor_id=16u,0x1af4"
+  #     - "device_id=16u,0x1110"
+  #     - "class=16u,0x0500"
+  #     - "sub_vendor_id=16u,0x1af4"
+  #     - "sub_device_id=16u,0x1110"
+  #     - "msix_vector_nr=16u,0x10"
+  #     - "using_64bit=bool,true"
+  #     - "legacy_irq=bool,true"
+  #     - "pseudo=bool,true"
+  #     - "backend=string,shm@1"
+  
+  - name: "pcie_ivshmem@nic-back0"
+    type: "emu_pcie_dev_ivshmem"
+    args:
+      - "host=string,pcie_host@8d0000000"
+      - "pcie_type=string,normal"
+      - "pcie_permit=32u,0xFFFFFFFF"
+      - "bdf=16u,0xff28"
+      - "vendor_id=16u,0x1af4"
+      - "device_id=16u,0x1110"
+      - "class=16u,0x0200"
+      - "sub_vendor_id=16u,0x1af4"
+      - "sub_device_id=16u,0x1110"
+      - "msix_vector_nr=16u,0x10"
+      - "using_64bit=bool,true"
+      - "legacy_irq=bool,true"
+      - "intx_pin=8u,0x01"
+      - "pseudo=bool,true"
+      - "backend=string,shm@2"
+      - "shm_gpa=64u,0xa00000"
+      - "shm_flag=string,WR|RD|EXE|WB"
+
+  - name: "pwr-button1"
+    type: "emu_ettus_e3x0_button"
+    int: 
+      - int_attr: [0x00,0x00,0x01]
+        parent: "pintc@0"
+      - int_attr: [0x00,0x01,0x01]
+
+bpo: none
+
+bootcfg:
+  boot_type: FDT
+  kernel:
+    name: "Kernel.bin"
+    load_addr: 0xce00000
+    exec_addr: 0x0
+
+  fdt:
+    name: "kernel.dtb"
+    load_addr: 0x16b00000
+    exec_addr: 0x0
+
+  initrd: 
+    name: "Initrd.img"
+    load_addr: 0x20000000
+    exec_addr: 0x0
+

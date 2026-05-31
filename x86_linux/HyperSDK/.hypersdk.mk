@@ -1,0 +1,8 @@
+PLAT		:= rockchip
+BOARD		:= rockpi5b
+FLAVOR	:= default
+TYPE		:= test
+PROJECT_VERSION := 0
+PROJECT_SUBVERSION := 13
+PROJECT_REVISION := 0
+PROJECT_SCMVERSION := v0.13.0-rc1-9-g08484ac

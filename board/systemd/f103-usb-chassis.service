@@ -1,0 +1,31 @@
+# /etc/systemd/system/f103-usb-chassis.service
+[Unit]
+Description=F103 USB chassis bridge for /cmd_vel and /odom
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rock
+WorkingDirectory=/home/rock/Desktop/rt_direct_tools
+Environment=F103_PORT=/dev/serial/by-path/platform-fc8c0000.usb-usb-0:1:1.0-port0
+Environment=F103_BAUD=115200
+Environment=ROS_SETUP=/opt/ros/foxy/setup.bash
+Environment=ROS_WS_SETUP=/home/rock/Desktop/rock_ws/ros_ws/install/setup.bash
+Environment=CMD_TOPIC=/cmd_vel
+Environment=EXTRA_CMD_TOPIC=/cmd_vel_cmd
+Environment=ODOM_TOPIC=/odom
+Environment=STATE_TOPIC=/f103_state
+Environment=ROS_LOCALHOST_ONLY=1
+Environment=ROS_DOMAIN_ID=17
+Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/bash -lc 'set +u; source "$ROS_SETUP"; [ -f "$ROS_WS_SETUP" ] && source "$ROS_WS_SETUP"; set -u; exec python3 /home/rock/Desktop/rt_direct_tools/ros2_tools/f103_usb_ros2_bridge.py --port "$F103_PORT" --baudrate "$F103_BAUD" --cmd-topic "$CMD_TOPIC" --extra-cmd-topic "$EXTRA_CMD_TOPIC" --odom-topic "$ODOM_TOPIC" --state-topic "$STATE_TOPIC" --arm-topic /arm_cmd --cmd-vx-sign -1 --odom-vx-sign -1'
+ExecStop=/bin/bash -lc 'set +u; source /opt/ros/foxy/setup.bash; [ -f /home/rock/Desktop/rock_ws/ros_ws/install/setup.bash ] && source /home/rock/Desktop/rock_ws/ros_ws/install/setup.bash; set -u; timeout 2 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}" || true'
+Restart=always
+RestartSec=3
+StandardOutput=append:/home/rock/Desktop/rt_direct_tools/logs/f103_usb_bridge_systemd.log
+StandardError=append:/home/rock/Desktop/rt_direct_tools/logs/f103_usb_bridge_systemd.log
+
+[Install]
+WantedBy=multi-user.target

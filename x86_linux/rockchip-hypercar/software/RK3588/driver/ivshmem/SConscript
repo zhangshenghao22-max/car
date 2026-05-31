@@ -1,0 +1,20 @@
+from building import *
+
+group = []
+
+if not GetDepend(['RT_USING_DRIVER_IVSHMEM']):
+    Return('group')
+
+cwd = GetCurrentDir()
+CPPPATH = [cwd, cwd + '/../../include', cwd + '/../include/drivers']
+
+src = []
+
+src = src + ['ivshmem.c']
+
+if GetDepend('RT_USING_IVSHMEM_NET'):
+    src += ['ivshmem_net.c']
+
+group = DefineGroup('DeviceDrivers', src, depend = [''], CPPPATH = CPPPATH)
+
+Return('group')

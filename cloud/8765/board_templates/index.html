@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>基于视觉感知与路径规划室内电力巡检机器人</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260402-step9') }}">
+</head>
+<body>
+  <div class="cloud-shell">
+    <aside class="cloud-sidebar">
+      <div class="brand-panel">
+        <div class="brand-kicker">RK3588 BOARD</div>
+        <h1>基于视觉感知与路径规划室内电力巡检机器人</h1>
+        <p>板端独立运行平台，统一接入小车控制、视觉识别、ROS2 建图、地图点位、任务配置、定位导航、基础避障与运行日志。</p>
+      </div>
+
+      <div class="sidebar-status">
+        <div class="status-tile">
+          <span>控制链路</span>
+          <strong id="status-control">未连接</strong>
+        </div>
+        <div class="status-tile">
+          <span>视觉</span>
+          <strong id="status-vision">待机</strong>
+        </div>
+        <div class="status-tile">
+          <span>ROS</span>
+          <strong id="status-ros">待机</strong>
+        </div>
+        <div class="status-tile">
+          <span>避障</span>
+          <strong id="status-avoidance">待机</strong>
+        </div>
+      </div>
+
+      <nav class="tabbar">
+        <button class="tab active" data-tab="home">首页总览</button>
+        <button class="tab" data-tab="control">控制</button>
+        <button class="tab" data-tab="vision">视觉</button>
+        <button class="tab" data-tab="ros">ROS 建图</button>
+        <button class="tab" data-tab="avoidance">避障</button>
+        <button class="tab" data-tab="maps">地图</button>
+        <button class="tab" data-tab="nav">导航 / 任务</button>
+        <button class="tab" data-tab="logs">日志</button>
+      </nav>
+
+      <section class="card sidebar-foot">
+        <div class="mini-head"><h3>运行摘要</h3></div>
+        <div class="sidebar-foot-grid">
+          <div>
+            <span>控制串口</span>
+            <strong id="sidebar-control-port">--</strong>
+          </div>
+          <div>
+            <span>雷达串口</span>
+            <strong id="sidebar-lidar-port">--</strong>
+          </div>
+          <div>
+            <span>最近地图</span>
+            <strong id="sidebar-latest-map">--</strong>
+          </div>
+          <div>
+            <span>最近识别</span>
+            <strong id="sidebar-latest-result">--</strong>
+          </div>
+        </div>
+        <div class="inline-status compact-status" id="sidebar-note">等待后端状态同步。</div>
+      </section>
+    </aside>
+
+    <main class="cloud-main">
+      <section class="tabpage active" id="tab-home">
+        <div class="overview-grid">
+          <section class="metric-card accent-cyan">
+            <span>控制链路</span>
+            <strong id="home-control-state">未连接</strong>
+            <small id="home-control-detail">等待接入控制主链路。</small>
+          </section>
+          <section class="metric-card accent-blue">
+            <span>视觉状态</span>
+            <strong id="home-vision-state">待机</strong>
+            <small id="home-vision-detail">摄像头与识别模型尚未启动。</small>
+          </section>
+          <section class="metric-card accent-amber">
+            <span>ROS 建图</span>
+            <strong id="home-ros-state">待机</strong>
+            <small id="home-ros-detail">等待启动雷达建图链路。</small>
+          </section>
+          <section class="metric-card accent-red">
+            <span>避障状态</span>
+            <strong id="home-avoidance-state">待机</strong>
+            <small id="home-avoidance-detail">当前未启用避障。</small>
+          </section>
+        </div>
+
+        <div class="grid two-col">
+          <section class="card">
+            <div class="card-head">
+              <h2>设备矩阵</h2>
+              <span class="inline-tag" id="home-device-tag">真实状态</span>
+            </div>
+            <div class="inline-status" id="home-device-summary">根据板端真实状态生成设备矩阵。</div>
+            <div id="home-device-matrix" class="device-matrix"></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <h2>关键摘要</h2>
+              <span class="inline-tag">实时刷新</span>
+            </div>
+            <div class="metric-grid" id="home-runtime-metrics"></div>
+            <div class="inline-status" id="home-runtime-summary">等待后端状态同步。</div>
+          </section>
+        </div>
+
+        <div class="grid two-col">
+          <section class="card">
+            <div class="card-head">
+              <h2>配电柜监测</h2>
+              <span class="inline-tag">未接入</span>
+            </div>
+            <div class="metric-grid" id="cabinet-runtime-metrics"></div>
+            <div class="inline-status" id="cabinet-runtime-summary">当前板端没有接入真实配电柜数据，统一显示未接入。</div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <h2>最近结果</h2>
+              <span class="inline-tag">只读</span>
+            </div>
+            <div class="metric-grid" id="home-recent-metrics"></div>
+            <div class="inline-status" id="home-recent-summary">等待后端状态同步。</div>
+          </section>
+        </div>
+      </section>
+
+      <section class="tabpage" id="tab-control">
+        <div class="stack">
+          <div class="grid vision-result-stack">
+            <section class="card">
+              <div class="card-head">
+                <h2>通信连接</h2>
+                <span class="inline-tag" id="control-runtime-tag">未连接</span>
+              </div>
+              <div class="form-row">
+                <label for="control-port">控制串口</label>
+                <select id="control-port"></select>
+              </div>
+              <div class="form-row">
+                <label for="control-baudrate">波特率</label>
+                <input id="control-baudrate" type="number" min="1200" step="1" value="115200">
+              </div>
+              <div class="button-row compact-top">
+                <button id="btn-control-connect">连接串口</button>
+                <button id="btn-control-disconnect" class="ghost">断开连接</button>
+              </div>
+              <div class="button-row compact-top">
+                <button id="btn-control-handshake" class="ghost">握手</button>
+                <button id="btn-control-status-request" class="ghost">请求状态</button>
+              </div>
+              <div class="form-row compact-top">
+                <label for="control-report-enabled">连续上报</label>
+                <div class="button-row">
+                  <select id="control-report-enabled">
+                    <option value="true">开启</option>
+                    <option value="false">关闭</option>
+                  </select>
+                  <button id="btn-control-report" class="ghost">应用</button>
+                </div>
+              </div>
+              <div class="inline-status" id="control-connection-summary">等待后端状态同步。</div>
+              <div class="inline-status" id="control-formal-summary">等待正式协议状态。</div>
+            </section>
+
+            <section class="card">
+              <div class="card-head">
+                <h2>模式与急停</h2>
+                <span class="inline-tag">正式链路</span>
+              </div>
+              <div class="button-row compact-top">
+                <button class="ghost" data-mode="MANUAL">手动</button>
+                <button class="ghost" data-mode="MAPPING">建图</button>
+                <button class="ghost" data-mode="INSPECT">巡检</button>
+              </div>
+              <div class="button-row compact-top">
+                <button id="btn-control-estop" class="danger">急停</button>
+                <button id="btn-control-estop-clear" class="ghost">清除急停</button>
+              </div>
+              <div class="metric-grid" id="control-runtime-metrics"></div>
+              <div class="metric-grid" id="control-wheel-metrics"></div>
+            </section>
+          </div>
+
+          <div class="grid two-col">
+            <section class="card">
+              <div class="card-head">
+                <h2>小车运动</h2>
+                <span class="inline-tag">按住发送</span>
+              </div>
+              <div class="motion-pad motion-pad-extended">
+                <button data-motion="forward">前进</button>
+                <button data-motion="stop" class="danger">停止</button>
+                <button data-motion="backward">后退</button>
+                <button data-motion="left" class="ghost">左转</button>
+                <button data-motion="shift_left" class="ghost">左平移</button>
+                <button data-motion="right" class="ghost">右转</button>
+                <button data-motion="shift_right" class="ghost">右平移</button>
+              </div>
+              <div class="inline-status" id="control-motion-summary">按住方向按钮发送运动命令，松开后自动补发停止命令。</div>
+            </section>
+
+            <section class="card">
+              <div class="card-head">
+                <h2>BLE 备用链路</h2>
+                <span class="inline-tag">本轮禁用</span>
+              </div>
+              <div class="disabled-panel">
+                <div class="inline-status" id="control-ble-summary">当前仅保留 BLE 状态展示，不执行扫描或连接。</div>
+                <div class="metric-grid" id="control-ble-metrics"></div>
+                <div class="button-row compact-top">
+                  <button class="ghost" disabled>扫描 BLE</button>
+                  <button class="ghost" disabled>连接 BLE</button>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <section class="card">
+            <div class="card-head">
+              <h2>机械臂关节控制</h2>
+              <span class="inline-tag">8 关节</span>
+            </div>
+            <div class="inline-status" id="servo-summary">默认展示 8 个关节值；视觉自动跟踪当前只使用关节 0/1，关节 3 固定 2200。</div>
+            <div class="servo-toolbar compact-top">
+              <button id="btn-servo-send-all">发送全部关节</button>
+              <button id="btn-servo-home" class="ghost">回初始位</button>
+              <button id="btn-servo-reset" class="ghost">复位命令</button>
+              <button id="btn-servo-stop" class="danger">停止关节</button>
+            </div>
+            <div id="servo-list" class="servo-list compact-top"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="tabpage" id="tab-vision">
+        <div class="stack">
+          <div class="grid two-col">
+            <section class="card">
+              <div class="card-head">
+                <h2>实时摄像头</h2>
+                <span class="inline-tag" id="vision-runtime-tag">待机</span>
+              </div>
+              <div class="stream-frame">
+                <img id="camera-stream" src="/stream/camera.mjpg" alt="实时摄像头画面">
+              </div>
+              <div class="button-row compact-top">
+                <button id="btn-vision-load-models">加载模型</button>
+                <button id="btn-vision-start">启动摄像头</button>
+                <button id="btn-vision-stop" class="ghost">停止摄像头</button>
+              </div>
+              <div class="form-row compact-top">
+                <label for="camera-select">摄像头编号</label>
+                <select id="camera-select"></select>
+              </div>
+              <div class="inline-status" id="vision-summary">等待后端状态同步。</div>
+            </section>
+
+            <section class="card">
+              <div class="card-head">
+                <h2>识别配置</h2>
+                <span class="inline-tag">真实配置</span>
+              </div>
+              <label class="checkline compact-top"><input id="vision-enable-yolo" type="checkbox">启用 YOLO</label>
+              <label class="checkline compact-top"><input id="vision-enable-meter" type="checkbox">启用仪表识别</label>
+              <label class="checkline compact-top"><input id="vision-enable-tracking" type="checkbox">启用目标跟踪</label>
+              <div class="form-row compact-top">
+                <label for="vision-yolo-confidence">YOLO 阈值</label>
+                <input id="vision-yolo-confidence" type="number" min="0.1" max="0.95" step="0.01" value="0.45">
+              </div>
+              <div class="form-row compact-top">
+                <label for="vision-meter-confidence">仪表阈值</label>
+                <input id="vision-meter-confidence" type="number" min="0.1" max="0.95" step="0.01" value="0.55">
+              </div>
+              <div class="button-row compact-top">
+                <button id="btn-vision-config">应用识别配置</button>
+              </div>
+              <div class="metric-grid" id="vision-runtime-metrics"></div>
+            </section>
+          </div>
+
+          <div class="grid two-col">
+            <section class="card">
+              <div class="card-head">
+                <h2>图片识别 / 自动抓拍</h2>
+                <span class="inline-tag">仅图片</span>
+              </div>
+              <div class="vision-upload-result">
+                <div class="form-row">
+                  <label for="vision-upload-file">选择图片</label>
+                  <input id="vision-upload-file" type="file" accept=".jpg,.jpeg,.png,.bmp,.webp">
+                </div>
+                <div class="button-row">
+                  <button id="btn-vision-upload">识别图片</button>
+                  <a id="vision-upload-open" class="action-link ghost" href="#" target="_blank" rel="noopener noreferrer">打开结果</a>
+                </div>
+                <div class="inline-status" id="vision-upload-message">支持上传单张图片；摄像头运行时会每 5 秒自动抓拍一张并识别。</div>
+                <div class="inline-status" id="vision-snapshot-status">摄像头未运行，自动抓拍尚未开始。</div>
+                <div class="media-stage">
+                  <div id="vision-upload-empty" class="empty-media">等待图片识别结果</div>
+                  <img id="vision-upload-image" class="media-result" alt="上传识别结果">
+                </div>
+                <div class="inline-status" id="vision-upload-summary">当前未生成新的识别结果。</div>
+              </div>
+            </section>
+
+            <section class="card">
+              <div class="card-head">
+                <h2>最近识别目标</h2>
+                <span class="inline-tag">只读</span>
+              </div>
+              <div id="vision-detection-list" class="detection-list"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="tabpage" id="tab-ros">
+        <div class="stack">
+          <section class="card">
+            <div class="card-head">
+              <h2>ROS2 建图控制</h2>
+              <span id="lidar-runtime-chip" class="link-pill">待机</span>
+            </div>
+            <div class="form-row">
+              <label for="lidar-port">雷达串口</label>
+              <select id="lidar-port"></select>
+            </div>
+            <div class="button-row compact-top">
+              <button id="btn-lidar-start">启动建图</button>
+              <button id="btn-lidar-reset">重启建图</button>
+              <button id="btn-lidar-stop" class="danger">停止建图</button>
+              <button id="btn-lidar-save" class="ghost">保存地图</button>
+              <button id="btn-rviz-open" class="ghost">打开 RViz</button>
+            </div>
+            <div class="inline-status" id="lidar-scan-summary">等待 ROS 建图启动。</div>
+            <div class="inline-status" id="lidar-map-summary">等待 ROS 建图启动。</div>
+            <div class="inline-status" id="lidar-runtime-summary">等待 ROS 建图启动。</div>
+            <div class="metric-grid lidar-metrics" id="lidar-scan-metrics"></div>
+            <div class="metric-grid lidar-metrics" id="lidar-map-metrics"></div>
+            <div class="metric-grid lidar-runtime-grid" id="lidar-runtime-metrics"></div>
+          </section>
+
+          <div class="grid two-col">
+            <section class="card">
+              <div class="card-head">
+                <h2>实时扫点</h2>
+                <span class="inline-tag">/scan</span>
+              </div>
+              <div class="stream-frame">
+                <img id="lidar-scan-stream" src="/stream/lidar_scan.mjpg" alt="ROS 扫点预览">
+              </div>
+            </section>
+            <section class="card">
+              <div class="card-head">
+                <h2>实时地图</h2>
+                <span class="inline-tag">/map</span>
+              </div>
+              <div class="stream-frame">
+                <img id="lidar-map-stream" src="/stream/lidar_map.mjpg" alt="ROS 地图预览">
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="tabpage" id="tab-avoidance">
+        <div class="stack">
+          <div class="grid two-col">
+            <section class="card">
+              <div class="card-head">
+                <h2>避障控制</h2>
+                <span class="inline-tag" id="avoidance-runtime-tag">待机</span>
+              </div>
+              <div class="form-row">
+                <label for="avoidance-port">雷达串口</label>
+                <select id="avoidance-port"></select>
+              </div>
+              <div class="button-row compact-top">
+                <button id="btn-avoidance-lidar-start">启动避障雷达</button>
+                <button id="btn-avoidance-lidar-stop" class="ghost">停止避障雷达</button>
+              </div>
+              <div class="button-row compact-top">
+                <button id="btn-avoidance-start">启动避障</button>
+                <button id="btn-avoidance-stop" class="danger">停止避障</button>
+              </div>
+              <div class="form-row compact-top">
+                <label for="avoidance-threshold">阈值 (mm)</label>
+                <div class="button-row">
+                  <input id="avoidance-threshold" type="number" min="10" max="1000" step="1" value="50">
+                  <button id="btn-avoidance-threshold" class="ghost">应用</button>
+                </div>
+              </div>
+              <div class="inline-status" id="avoidance-summary">等待避障状态。</div>
+            </section>
+
+            <section class="card">
+              <div class="card-head">
+                <h2>避障状态</h2>
+                <span class="inline-tag">实时</span>
+              </div>
+              <div class="metric-grid" id="avoidance-runtime-metrics"></div>
+              <div class="metric-grid" id="avoidance-distance-metrics"></div>
+            </section>
+          </div>
+
+          <section class="card">
+            <div class="card-head">
+              <h2>实时避障扫点图</h2>
+              <span class="inline-tag">激光雷达</span>
+            </div>
+            <div class="stream-frame">
+              <img id="avoidance-scan-stream" src="/stream/avoidance_scan.mjpg" alt="避障扫点图">
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="tabpage" id="tab-maps">
+        <div class="stack">
+          <section class="card">
+            <div class="card-head">
+              <h2>已保存地图</h2>
+              <span class="inline-tag" id="maps-runtime-tag">未加载</span>
+            </div>
+            <div class="button-row compact-top">
+              <button id="btn-maps-refresh" class="ghost">刷新地图列表</button>
+            </div>
+            <div class="saved-map-highlight compact-top">
+              <div class="saved-map-preview">
+                <div id="maps-preview-empty" class="saved-map-preview-empty">当前没有可预览的地图。</div>
+                <img id="maps-preview-image" alt="地图预览" class="media-result">
+              </div>
+              <div class="saved-map-meta">
+                <div class="saved-map-title" id="maps-selected-name">未选择地图</div>
+                <div class="saved-map-detail" id="maps-selected-detail">等待地图列表加载。</div>
+                <div class="saved-map-actions">
+                  <a id="maps-download-yaml" class="action-link ghost" href="#" target="_blank" rel="noopener noreferrer">下载 YAML</a>
+                  <a id="maps-download-image" class="action-link ghost" href="#" target="_blank" rel="noopener noreferrer">下载图片</a>
+                </div>
+              </div>
+            </div>
+            <div id="maps-list" class="saved-map-list compact-top"></div>
+          </section>
+
+          <div class="grid two-col">
+            <section class="card">
+              <div class="card-head">
+                <h2>地图点位编辑</h2>
+                <span class="inline-tag" id="maps-editor-tag">点击地图选点</span>
+              </div>
+              <div class="inline-status" id="maps-point-summary">先选择地图，然后在地图上点击添加或选中点位。</div>
+              <div class="map-editor-stage compact-top">
+                <div id="maps-editor-empty" class="saved-map-preview-empty">等待地图预览加载</div>
+                <canvas id="maps-editor-canvas"></canvas>
+              </div>
+              <div class="inline-status" id="maps-editor-hint">点击已有点位会切换到当前编辑；点击空白区域会更新表单坐标。</div>
+            </section>
+
+            <section class="card">
+              <div class="card-head">
+                <h2>点位属性</h2>
+                <span class="inline-tag">pose / inspect</span>
+              </div>
+              <div class="form-grid compact-top">
+                <div class="form-row"><label for="maps-point-id">ID</label><input id="maps-point-id" type="text" placeholder="point_001"></div>
+                <div class="form-row"><label for="maps-point-name">名称</label><input id="maps-point-name" type="text" placeholder="入口前"></div>
+                <div class="form-row">
+                  <label for="maps-point-type">类型</label>
+                  <select id="maps-point-type">
+                    <option value="pose">pose</option>
+                    <option value="inspect">inspect</option>
+                    <option value="point">point</option>
+                    <option value="pickup">pickup</option>
+                  </select>
+                </div>
+                <div class="form-row"><label for="maps-point-x">X (m)</label><input id="maps-point-x" type="number" step="0.01" value="0"></div>
+                <div class="form-row"><label for="maps-point-y">Y (m)</label><input id="maps-point-y" type="number" step="0.01" value="0"></div>
+                <div class="form-row"><label for="maps-point-yaw">Yaw (deg)</label><input id="maps-point-yaw" type="number" step="1" value="0"></div>
+                <div class="form-row"><label for="maps-point-note">备注</label><input id="maps-point-note" type="text" placeholder="可选"></div>
+              </div>
+              <div class="button-row compact-top">
+                <button id="btn-maps-point-new" class="ghost">新建点位</button>
+                <button id="btn-maps-point-save">应用到当前地图</button>
+                <button id="btn-maps-point-delete" class="danger">删除当前点</button>
+              </div>
+              <div class="button-row compact-top">
+                <button id="btn-maps-annotations-save">保存全部标注</button>
+              </div>
+              <div id="maps-point-list" class="saved-map-list compact-top"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="tabpage" id="tab-nav">
+        <div class="stack">
+          <div class="grid two-col">
+            <section class="card">
+              <div class="card-head">
+                <h2>定位与单点导航</h2>
+                <span class="inline-tag" id="nav-runtime-tag">待机</span>
+              </div>
+              <div class="form-row"><label for="nav-map-select">地图</label><select id="nav-map-select"></select></div>
+              <div class="form-row"><label for="nav-lidar-port">雷达串口</label><select id="nav-lidar-port"></select></div>
+              <div class="form-row"><label for="nav-goal-point">单点目标</label><select id="nav-goal-point"></select></div>
+              <div class="form-row"><label for="nav-arrival-tolerance">到达容差</label><input id="nav-arrival-tolerance" type="number" step="0.01" value="0.25"></div>
+              <div class="form-row"><label for="nav-avoidance-threshold">避障阈值 (mm)</label><input id="nav-avoidance-threshold" type="number" step="1" value="50"></div>
+              <div class="button-row compact-top">
+                <button id="btn-nav-localization-start">启动定位</button>
+                <button id="btn-nav-localization-stop" class="ghost">停止定位</button>
+              </div>
+              <div class="button-row compact-top">
+                <button id="btn-nav-goal-start">发送单点</button>
+                <button id="btn-nav-goal-cancel" class="danger">取消单点</button>
+              </div>
+              <div class="inline-status" id="nav-summary">等待导航状态同步。</div>
+              <div class="metric-grid" id="nav-runtime-metrics"></div>
+            </section>
+
+            <section class="card">
+              <div class="card-head">
+                <h2>巡检任务编辑</h2>
+                <span class="inline-tag" id="nav-task-tag">任务</span>
+              </div>
+              <div class="form-row">
+                <label for="nav-task-select">已有任务</label>
+                <div class="button-row">
+                  <select id="nav-task-select"></select>
+                  <button id="btn-nav-task-load" class="ghost">加载</button>
+                </div>
+              </div>
+              <div class="form-row"><label for="nav-task-name">任务名称</label><input id="nav-task-name" type="text" placeholder="task_patrol_a"></div>
+              <div class="form-row">
+                <label for="nav-task-mode">模式</label>
+                <select id="nav-task-mode">
+                  <option value="inspect">inspect</option>
+                  <option value="pose">pose</option>
+                </select>
+              </div>
+              <div class="form-row"><label for="nav-task-loop-count">循环次数</label><input id="nav-task-loop-count" type="number" min="1" step="1" value="1"></div>
+              <div class="form-row">
+                <label for="nav-waypoint-picker">添加点位</label>
+                <div class="button-row">
+                  <select id="nav-waypoint-picker"></select>
+                  <button id="btn-nav-waypoint-add" class="ghost">添加</button>
+                </div>
+              </div>
+              <div id="nav-task-waypoints" class="chip-list compact-top"></div>
+              <div class="button-row compact-top">
+                <button id="btn-nav-task-new" class="ghost">新建任务</button>
+                <button id="btn-nav-task-save">保存任务</button>
+              </div>
+              <div class="button-row compact-top">
+                <button id="btn-nav-task-start">启动任务</button>
+                <button id="btn-nav-task-stop" class="danger">停止任务</button>
+              </div>
+              <div class="inline-status" id="nav-task-summary">任务按点位 ID 引用，不复制坐标。</div>
+            </section>
+          </div>
+
+          <section class="card">
+            <div class="card-head">
+              <h2>可用点位预览</h2>
+              <span class="inline-tag">pose / inspect</span>
+            </div>
+            <div id="nav-points-preview" class="saved-map-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="tabpage" id="tab-logs">
+        <div class="stack">
+          <section class="card">
+            <div class="card-head">
+              <h2>运行日志</h2>
+              <span class="inline-tag" id="logs-runtime-tag">自动刷新</span>
+            </div>
+            <div class="button-row compact-top">
+              <button id="btn-logs-refresh" class="ghost">刷新日志</button>
+              <label class="checkline"><input id="logs-auto-refresh" type="checkbox" checked>自动刷新</label>
+            </div>
+            <pre id="logs-box" class="log-box compact-top">等待日志加载。</pre>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast"></div>
+  <script src="{{ url_for('static', filename='app.js', v='20260402-step9') }}"></script>
+</body>
+</html>

@@ -1,0 +1,165 @@
+{
+  "model": "/home/rock/Desktop/car2.0_board_deploy/yolo_models/lightlabel_best.onnx, /home/rock/Desktop/car2.0_board_deploy/yolo_models/power_cabinet_best.onnx, /home/rock/Desktop/car2.0_board_deploy/yolo_models/digits_best.onnx",
+  "models": [
+    {
+      "label": "lightlabel_best",
+      "model": "/home/rock/Desktop/car2.0_board_deploy/yolo_models/lightlabel_best.onnx",
+      "classes": "/home/rock/Desktop/car2.0_board_deploy/yolo_models/classes.txt"
+    },
+    {
+      "label": "power_cabinet_best",
+      "model": "/home/rock/Desktop/car2.0_board_deploy/yolo_models/power_cabinet_best.onnx",
+      "classes": "/home/rock/Desktop/car2.0_board_deploy/yolo_models/power_cabinet_classes.txt"
+    },
+    {
+      "label": "digits_best",
+      "model": "/home/rock/Desktop/car2.0_board_deploy/yolo_models/digits_best.onnx",
+      "classes": "/home/rock/Desktop/car2.0_board_deploy/yolo_models/digits_classes.txt"
+    }
+  ],
+  "classes": [
+    {
+      "model": "lightlabel_best",
+      "model_path": "/home/rock/Desktop/car2.0_board_deploy/yolo_models/lightlabel_best.onnx",
+      "classes_path": "/home/rock/Desktop/car2.0_board_deploy/yolo_models/classes.txt",
+      "names": [
+        "green_off",
+        "green_on",
+        "red_off",
+        "red_on"
+      ]
+    },
+    {
+      "model": "power_cabinet_best",
+      "model_path": "/home/rock/Desktop/car2.0_board_deploy/yolo_models/power_cabinet_best.onnx",
+      "classes_path": "/home/rock/Desktop/car2.0_board_deploy/yolo_models/power_cabinet_classes.txt",
+      "names": [
+        "yakuang",
+        "liukuang",
+        "dianya",
+        "dianliu"
+      ]
+    },
+    {
+      "model": "digits_best",
+      "model_path": "/home/rock/Desktop/car2.0_board_deploy/yolo_models/digits_best.onnx",
+      "classes_path": "/home/rock/Desktop/car2.0_board_deploy/yolo_models/digits_classes.txt",
+      "names": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ]
+    }
+  ],
+  "source_image": "/home/rock/Desktop/car2.0_board_deploy/runtime/yolo_camera/cloud_recognition_20260428_132216_raw.jpg",
+  "annotated_image": "/home/rock/Desktop/car2.0_board_deploy/runtime/yolo_camera/cloud_recognition_20260428_132216_det.jpg",
+  "backend": "lightlabel_best:onnxruntime,power_cabinet_best:onnxruntime,digits_best:onnxruntime",
+  "inference_ms": 4852.478,
+  "rotation": 180,
+  "camera_controls": {
+    "profile": "normal",
+    "requested": {
+      "brightness": 0,
+      "contrast": 32,
+      "saturation": 44,
+      "white_balance_temperature_auto": 1,
+      "gamma": 125,
+      "gain": 0,
+      "power_line_frequency": 1,
+      "sharpness": 24,
+      "backlight_compensation": 4,
+      "exposure_auto": 3
+    },
+    "applied": {
+      "brightness": 0,
+      "contrast": 32,
+      "saturation": 44,
+      "white_balance_temperature_auto": 1,
+      "gamma": 125,
+      "gain": 0,
+      "power_line_frequency": 1,
+      "sharpness": 24,
+      "backlight_compensation": 4,
+      "exposure_auto": 3
+    },
+    "errors": []
+  },
+  "camera_warmup_errors": [],
+  "model_warnings": [],
+  "meter_readings": [
+    {
+      "meter_type": "voltage",
+      "display_name": "voltage",
+      "unit": "V",
+      "value": null,
+      "status": "no_detection",
+      "confidence": null,
+      "box_xyxy": [],
+      "pointer_angle": null,
+      "pointer_method": "",
+      "debug_image": ""
+    },
+    {
+      "meter_type": "current",
+      "display_name": "current",
+      "unit": "A",
+      "value": 0.673611,
+      "status": "ok",
+      "confidence": 0.252838,
+      "box_xyxy": [
+        1258,
+        554,
+        2056,
+        1356
+      ],
+      "pointer_angle": 74.324171,
+      "pointer_method": "ray",
+      "debug_image": "",
+      "cabinet_metric": {
+        "value": 0.673611,
+        "unit": "A",
+        "status": "ok",
+        "min": 0,
+        "max": 1.0
+      }
+    }
+  ],
+  "digit_detections": [],
+  "digit_readings": {
+    "global_text": "",
+    "rows": [],
+    "meters": []
+  },
+  "cabinet_data": {
+    "current": {
+      "value": 0.673611,
+      "unit": "A",
+      "status": "ok",
+      "min": 0,
+      "max": 1.0
+    }
+  },
+  "detections": [
+    {
+      "class_id": 1,
+      "class_name": "liukuang",
+      "confidence": 0.252838,
+      "box_xyxy": [
+        1336,
+        632,
+        1978,
+        1278
+      ],
+      "model": "power_cabinet_best",
+      "source": "yolo",
+      "display_name": "power_cabinet_best:liukuang"
+    }
+  ]
+}

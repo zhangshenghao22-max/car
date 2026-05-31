@@ -1,0 +1,12 @@
+from building import *
+
+cwd     = GetCurrentDir()
+CPPPATH = [cwd]
+
+src     = []
+
+if GetDepend(['RT_PWM_ROCKCHIP']):
+    src += ['pwm-rockchip.c']
+
+group = DefineGroup('DeviceDrivers', src, depend = [''], CPPPATH = CPPPATH)
+Return('group')

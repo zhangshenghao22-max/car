@@ -1,0 +1,2 @@
+# Yahboom IMU on ROCK 5B EHCI hub port 1-1.2 (CH340/CH341 serial)
+SUBSYSTEM=="tty", KERNELS=="1-1.2", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="myimu", SYMLINK+="imu", MODE="0666", GROUP="dialout"

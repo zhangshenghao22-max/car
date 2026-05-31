@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<view>
+	<view x="0" y="0" width="2560" height="720" card="0">
+		<screen x="0" y="0" z="0" width="2560" height="720" uio="0">linux background</screen>
+		<screen x="0" y="0" z="1" width="856" height="720" uio="2">rt-smart left instrument cluster</screen>
+		<view x="856" y="0" width="848" height="720">
+			<view x="0" y="0" width="848" height="240">
+				<screen x="0"   y="0" z="1" width="424" height="240">rt-thread mcu low driver information</screen>
+				<screen x="424" y="0" z="1" width="424" height="240">rt-thread mcu high driver information</screen>
+			</view>
+			<screen x="0" y="240" z="1" width="848" height="480" uio="1">linux media driver information</screen>
+		</view>
+		<screen x="1704" y="0" z="1" width="856" height="720" uio="3">rt-smart right instrument cluster</screen>
+	</view>
+</view>

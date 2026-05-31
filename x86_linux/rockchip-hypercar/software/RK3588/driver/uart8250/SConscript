@@ -1,0 +1,19 @@
+from building import *
+import os
+
+Import('RTT_ROOT')
+
+cwd     = GetCurrentDir()
+CPPPATH = [
+    cwd,
+    os.path.join(os.getcwd(), 'compat_include'),
+]
+
+src     = ['core.c', 'early.c']
+
+if GetDepend(['RT_SERIAL_8250']):
+    src += ['8250-dw.c']
+    src += ['fiq-debugger.c']
+
+group = DefineGroup('DeviceDrivers', src, depend = [''], CPPPATH = CPPPATH)
+Return('group')

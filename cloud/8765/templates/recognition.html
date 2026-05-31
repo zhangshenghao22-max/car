@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>图像识别 - 小车云平台</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260424-recognition') }}" />
+  </head>
+  <body data-page="recognition" data-command-token="{{ command_token }}">
+    <div class="app-shell">
+      <header class="hero">
+        <div>
+          <div class="hero-kicker">Car Cloud</div>
+          <h1>图像识别</h1>
+          <p id="board-meta">拍照后由板端 YOLO 识别，并上传识别结果。</p>
+        </div>
+        <div class="hero-actions">
+          <a class="ghost-link" href="/">主菜单</a>
+          <button id="btn-refresh" type="button">刷新</button>
+        </div>
+      </header>
+
+      <section class="status-row">
+        <article class="status-card">
+          <span>连接状态</span>
+          <strong id="board-online">离线</strong>
+          <small id="last-seen">-</small>
+        </article>
+        <article class="status-card">
+          <span>最近识别</span>
+          <strong id="recognition-count">0 个目标</strong>
+          <small id="recognition-time">-</small>
+        </article>
+        <article class="status-card">
+          <span>识别耗时</span>
+          <strong id="recognition-infer">-</strong>
+          <small id="recognition-backend">-</small>
+        </article>
+        <article class="status-card">
+          <span>历史照片</span>
+          <strong id="history-count">0 张</strong>
+          <small>保留最近记录</small>
+        </article>
+      </section>
+
+      <main class="main-grid recognition-grid">
+        <article class="panel panel-recognition">
+          <div class="panel-head">
+            <div>
+              <h2>最新识别照片</h2>
+              <p>点击“拍照识别”后，板端会拍一张照片、执行识别并上传结果。</p>
+            </div>
+            <span class="pill" id="recognition-pill">等待照片</span>
+          </div>
+          <div class="recognition-frame-shell">
+            <img id="recognition-image" alt="最新识别照片" />
+            <div class="placeholder" id="recognition-placeholder">还没有识别照片，点击右侧“拍照识别”。</div>
+          </div>
+          <div class="summary-box" id="recognition-summary">等待识别结果</div>
+        </article>
+
+        <article class="panel command-panel">
+          <div class="panel-head">
+            <div>
+              <h2>识别操作</h2>
+              <p>只触发一次拍照识别，不影响建图和导航链。</p>
+            </div>
+          </div>
+          <div class="recognition-controls">
+            <label>
+              置信度
+              <input id="recognition-conf" type="number" min="0.01" max="0.99" step="0.01" value="0.25" />
+            </label>
+            <button id="cmd-capture-recognition" type="button">拍照识别</button>
+          </div>
+          <div class="summary-block" id="recognition-command-status">等待操作</div>
+          <details class="command-history-wrap">
+            <summary>指令历史</summary>
+            <div class="command-history" id="command-history">还没有指令记录</div>
+          </details>
+        </article>
+
+        <article class="panel recognition-history-panel">
+          <div class="panel-head">
+            <div>
+              <h2>历史照片</h2>
+              <p>显示最近上传的识别结果，点击缩略图可查看大图。</p>
+            </div>
+          </div>
+          <div class="recognition-history" id="recognition-history">
+            <div class="placeholder-inline">暂无历史照片</div>
+          </div>
+        </article>
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='recognition.js', v='20260428-meter') }}"></script>
+    {% if sandbox %}
+    <script src="{{ url_for('static', filename='recognition_sandbox.js', v='20260430-sandbox1') }}"></script>
+    {% endif %}
+  </body>
+</html>

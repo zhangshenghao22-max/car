@@ -1,0 +1,1099 @@
+hardware:
+  cpu:
+    - name: "cpu@0"
+      type: "phy_cpu"
+      args:
+        - "cluster=32u,0x0"
+        - "reg=32u,0x0"
+        - "psci=bool,true"
+
+    - name: "cpu@1"
+      type: "phy_cpu"
+      args:
+        - "cluster=32u,0x0"
+        - "reg=32u,0x100"
+        - "psci=bool,true"
+
+    - name: "cpu@2"
+      type: "phy_cpu"
+      args:
+        - "cluster=32u,0x0"
+        - "reg=32u,0x200"
+        - "psci=bool,true"
+
+    - name: "cpu@3"
+      type: "phy_cpu"
+      args:
+        - "cluster=32u,0x0"
+        - "reg=32u,0x300"
+        - "psci=bool,true"
+
+    - name: "cpu@4"
+      type: "phy_cpu"
+      args:
+        - "cluster=32u,0x1"
+        - "reg=32u,0x400"
+        - "psci=bool,true"
+
+    - name: "cpu@5"
+      type: "phy_cpu"
+      args:
+        - "cluster=32u,0x1"
+        - "reg=32u,0x500"
+        - "psci=bool,true"
+
+    - name: "cpu@6"
+      type: "phy_cpu"
+      args:
+        - "cluster=32u,0x2"
+        - "reg=32u,0x600"
+        - "psci=bool,true"
+
+    - name: "cpu@7"
+      type: "phy_cpu"
+      args:
+        - "cluster=32u,0x2"
+        - "reg=32u,0x700"
+        - "psci=bool,true"
+
+  mem:
+    - name: "memory1"
+      addr: 0x200000
+      length: 0xefe00000
+      attr: 0x0
+    - name: "memory2"
+      addr: 0x100000000
+      length: 0x2fc000000
+      attr: 0x0
+    - name: "memory3"
+      addr: 0x3fc500000
+      length: 0x3a00000
+      attr: 0x0
+
+    # - name: "memory1"
+    #   addr: 0x200000
+    #   length: 0xefe00000
+    #   attr: 0x0
+    # - name: "memory2"
+    #   addr: 0x100000000
+    #   length: 0x100000000
+    #   attr: 0x0
+
+  dev:
+    - name: "pintc@0"
+      type: "phy_intc"
+      args:
+        - "intc_version=string,gicv3"
+        - "gicd=64u,0xfe600000,0x10000"
+        - "gicr=64u,0xfe680000,0x100000"
+        - "its=64u,0xfe640000,0x20000"
+        - "its[1]=64u,0xfe660000,0x20000"
+
+    - name: "timer1"
+      type: "phy_common"
+      mem:
+        - "0xfeae0000,0x1000"
+      int:
+        - int_attr: [0x0,0x121,0x4]
+          parent: "pintc@0"
+
+    - name: "timer2"
+      type: "phy_common"
+      mem:
+        - "0xfeae0000,0x1000"
+      int:
+        - int_attr: [0x0,0x121,0x4]
+          parent: "pintc@0"
+
+    - name: "timer-irq1"
+      type: "phy_common"
+      int:
+        - int_attr: [0x01,0x0d,0xf04]
+          parent: "pintc@0"
+        - int_attr: [0x01,0x0e,0xf04]
+        - int_attr: [0x01,0x0b,0xf04]
+        - int_attr: [0x01,0x0a,0xf04]
+
+    - name: "timer-irq2"
+      type: "phy_common"
+      int:
+        - int_attr: [0x01,0x0d,0xf04]
+          parent: "pintc@0"
+        - int_attr: [0x01,0x0e,0xf04]
+        - int_attr: [0x01,0x0b,0xf04]
+        - int_attr: [0x01,0x0a,0xf04]
+
+    - name: "uart1"
+      type: "phy_common"
+      mem:
+        - "0xfeb50000,0x1000"
+      int:
+        - int_attr: [0x0,0x14d,0x4]
+          parent: "pintc@0"
+
+    - name: "sram"
+      type: "phy_common"
+      mem:
+        - "0xff001000,0xef000"
+
+    - name: "dmc"
+      type: "phy_common"
+      int:
+        - int_attr: [0x0,0x49,0x4]
+          parent: "pintc@0"
+
+    - name: "gpu"
+      type: "phy_common"
+      mem:
+        - "0xfb000000,0x200000"
+      int:
+        - int_attr: [0x0,0x5e,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x5d,0x4]
+        - int_attr: [0x0,0x5c,0x4]
+
+    - name: "usb1"
+      type: "phy_common"
+      mem:
+        - "0xfc800000,0x40000"
+      int:
+        - int_attr: [0x0,0xd7,0x4]
+          parent: "pintc@0"
+
+    - name: "usb2"
+      type: "phy_common"
+      mem:
+        - "0xfc840000,0x40000"
+      int:
+        - int_attr: [0x0,0xd8,0x4]
+          parent: "pintc@0"
+
+    - name: "usb3"
+      type: "phy_common"
+      mem:
+        - "0xfc880000,0x40000"
+      int:
+        - int_attr: [0x0,0xda,0x4]
+          parent: "pintc@0"
+
+    - name: "usb4"
+      type: "phy_common"
+      mem:
+        - "0xfc8c0000,0x40000"
+      int:
+        - int_attr: [0x0,0xdb,0x4]
+          parent: "pintc@0"
+
+    - name: "syscon1"
+      type: "phy_common"
+      mem:
+        - "0xfd5d0000,0x4000"
+      int:
+        - int_attr: [0x0,0x189,0x4]
+          parent: "pintc@0"
+
+    - name: "syscon2"
+      type: "phy_common"
+      mem:
+        - "0xfd5d8000,0x4000"
+      int:
+        - int_attr: [0x0,0x187,0x4]
+          parent: "pintc@0"
+
+    - name: "syscon3"
+      type: "phy_common"
+      mem:
+        - "0xfd5dc000,0x4000"
+      int:
+        - int_attr: [0x0,0x188,0x4]
+          parent: "pintc@0"
+
+    - name: "i2c"
+      type: "phy_common"
+      mem:
+        - "0xfd880000,0x1000"
+      int:
+        - int_attr: [0x0,0x13d,0x4]
+          parent: "pintc@0"
+
+    - name: "npu@fdab0000"
+      type: "phy_common"
+      mem:
+        - "0xfdab0000,0x10000"
+        - "0xfdac0000,0x10000"
+        - "0xfdad0000,0x10000"
+      int:
+        - int_attr: [0x0,0x6e,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x6f,0x4]
+        - int_attr: [0x0,0x70,0x4]
+
+    - name: "vdpu"
+      type: "phy_common"
+      mem:
+        - "0xfdb50000,0x1000"
+      int:
+        - int_attr: [0x0,0x77,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x76,0x4]
+
+    - name: "rga@fdb60000"
+      type: "phy_common"
+      mem:
+        - "0xfdb60000,0x1000"
+      int:
+        - int_attr: [0x0,0x72,0x4]
+          parent: "pintc@0"
+
+    - name: "rga@fdb70000"
+      type: "phy_common"
+      mem:
+        - "0xfdb70000,0x1000"
+      int:
+        - int_attr: [0x0,0x73,0x4]
+          parent: "pintc@0"
+
+    - name: "rga@fdb80000"
+      type: "phy_common"
+      mem:
+        - "0xfdb80000,0x1000"
+      int:
+        - int_attr: [0x0,0x74,0x4]
+          parent: "pintc@0"
+
+    - name: "jpegd@fdb90000"
+      type: "phy_common"
+      mem:
+        - "0xfdb90000,0x1000"
+      int:
+        - int_attr: [0x0,0x81,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x82,0x4]
+
+    - name: "jpege-core@fdba0000"
+      type: "phy_common"
+      mem:
+        - "0xfdba0000,0x1000"
+      int:
+        - int_attr: [0x0,0x7a,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x79,0x4]
+
+    - name: "jpege-core@fdba4000"
+      type: "phy_common"
+      mem:
+        - "0xfdba4000,0x1000"
+      int:
+        - int_attr: [0x0,0x7c,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x7b,0x4]
+
+    - name: "jpege-core@fdba8000"
+      type: "phy_common"
+      mem:
+        - "0xfdba8000,0x1000"
+      int:
+        - int_attr: [0x0,0x7e,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x7d,0x4]
+
+    - name: "jpege-core@fdbac000"
+      type: "phy_common"
+      mem:
+        - "0xfdbac000,0x1000"
+      int:
+        - int_attr: [0x0,0x80,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x7f,0x4]
+
+    - name: "iep@fdbb0000"
+      type: "phy_common"
+      mem:
+        - "0xfdbb0000,0x1000"
+      int:
+        - int_attr: [0x0,0x75,0x4]
+          parent: "pintc@0"
+
+    - name: "rkvenc-core@fdbd0000"
+      type: "phy_common"
+      mem:
+        - "0xfdbd0000,0x6000"
+      int:
+        - int_attr: [0x0,0x65,0x4]
+          parent: "pintc@0"
+
+    - name: "iommu@fdbdf000"
+      type: "phy_common"
+      mem:
+        - "0xfdbdf000,0x1000"
+      int:
+        - int_attr: [0x0,0x63,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x64,0x4]
+
+    - name: "rkvenc-core@fdbe0000"
+      type: "phy_common"
+      mem:
+        - "0xfdbe0000,0x6000"
+      int:
+        - int_attr: [0x0,0x68,0x4]
+          parent: "pintc@0"
+
+    - name: "iommu@fdbef000"
+      type: "phy_common"
+      mem:
+        - "0xfdbef000,0x1000"
+      int:
+        - int_attr: [0x0,0x66,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x67,0x4]
+
+    - name: "rkvdec-core@fdc38000"
+      type: "phy_common"
+      mem:
+        - "0xfdc38000,0x1000"
+      int:
+        - int_attr: [0x0,0x5f,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x60,0x4]
+
+    - name: "rkvdec-core@fdc48000"
+      type: "phy_common"
+      mem:
+        - "0xfdc48000,0x1000"
+      int:
+        - int_attr: [0x0,0x61,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x62,0x4]
+
+    - name: "vop@fdd90000"
+      type: "phy_common"
+      mem:
+        - "0xfdd90000,0x8000"
+      int:
+        - int_attr: [0x0,0x9c,0x4]
+          parent: "pintc@0"
+
+    - name: "dp@fde50000"
+      type: "phy_common"
+      mem:
+        - "0xfde50000,0x4000"
+      int:
+        - int_attr: [0x0,0xa1,0x4]
+          parent: "pintc@0"
+
+    - name: "hdmi@fde80000"
+      type: "phy_common"
+      mem:
+        - "0xfde80000,0x20000"
+      int:
+        - int_attr: [0x0,0xa9,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0xaa,0x4]
+        - int_attr: [0x0,0xab,0x4]
+        - int_attr: [0x0,0xac,0x4]
+        - int_attr: [0x0,0x168,0x4]
+
+    - name: "spi@fe2b0000"
+      type: "phy_common"
+      mem:
+        - "0xfe2b0000,0x4000"
+      int:
+        - int_attr: [0x0,0xce,0x4]
+          parent: "pintc@0"
+
+    - name: "mmc@fe2c0000"
+      type: "phy_common"
+      mem:
+        - "0xfe2c0000,0x4000"
+      int:
+        - int_attr: [0x0,0xcb,0x4]
+          parent: "pintc@0"
+
+    - name: "mmc@fe2d0000"
+      type: "phy_common"
+      mem:
+        - "0xfe2d0000,0x4000"
+      int:
+        - int_attr: [0x0,0xcc,0x4]
+          parent: "pintc@0"
+
+    - name: "mmc@fe2e0000"
+      type: "phy_common"
+      mem:
+        - "0xfe2e0000,0x10000"
+      int:
+        - int_attr: [0x0,0xcd,0x4]
+          parent: "pintc@0"
+
+    - name: "dma-controller@fea10000"
+      type: "phy_common"
+      mem:
+        - "0xfea10000,0x4000"
+      int:
+        - int_attr: [0x0,0x56,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x57,0x4]
+
+    - name: "dma-controller@fea30000"
+      type: "phy_common"
+      mem:
+        - "0xfea30000,0x4000"
+      int:
+        - int_attr: [0x0,0x58,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x59,0x4]
+
+    - name: "i2c@fea90000"
+      type: "phy_common"
+      mem:
+        - "0xfea90000,0x1000"
+      int:
+        - int_attr: [0x0,0x13e,0x4]
+          parent: "pintc@0"
+
+    - name: "i2c@feac0000"
+      type: "phy_common"
+      mem:
+        - "0xfeac0000,0x1000"
+      int:
+        - int_attr: [0x0,0x141,0x4]
+          parent: "pintc@0"
+
+    - name: "spi@feb20000"
+      type: "phy_common"
+      mem:
+        - "0xfeb20000,0x1000"
+      int:
+        - int_attr: [0x0,0x148,0x4]
+          parent: "pintc@0"
+
+    - name: "tsadc@fec00000"
+      type: "phy_common"
+      mem:
+        - "0xfec00000,0x1000"
+      int:
+        - int_attr: [0x0,0x18d,0x4]
+          parent: "pintc@0"
+
+    - name: "saradc@fec10000"
+      type: "phy_common"
+      mem:
+        - "0xfec10000,0x10000"
+      int:
+        - int_attr: [0x0,0x18e,0x4]
+          parent: "pintc@0"
+
+    - name: "i2c@fec80000"
+      type: "phy_common"
+      mem:
+        - "0xfec80000,0x1000"
+      int:
+        - int_attr: [0x0,0x143,0x4]
+          parent: "pintc@0"
+
+    - name: "i2c@fec90000"
+      type: "phy_common"
+      mem:
+        - "0xfec90000,0x1000"
+      int:
+        - int_attr: [0x0,0x144,0x4]
+          parent: "pintc@0"
+
+    - name: "dma-controller@fed10000"
+      type: "phy_common"
+      mem:
+        - "0xfed10000,0x4000"
+      int:
+        - int_attr: [0x0,0x5a,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x5b,0x4]
+
+    - name: "syscon@fd5d4000"
+      type: "phy_common"
+      mem:
+        - "0xfd5d4000,0x4000"
+      int:
+        - int_attr: [0x0,0x18a,0x4]
+          parent: "pintc@0"
+
+    - name: "hdmi@fdea0000"
+      type: "phy_common"
+      mem:
+        - "0xfdea0000,0x20000"
+      int:
+        - int_attr: [0x0,0xad,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0xae,0x4]
+        - int_attr: [0x0,0xaf,0x4]
+        - int_attr: [0x0,0xb0,0x4]
+        - int_attr: [0x0,0x169,0x4]
+
+    - name: "hdmirx-controller@fdee0000"
+      type: "phy_common"
+      mem:
+        - "0xfdee0000,0x6000"
+      int:
+        - int_attr: [0x0,0xb1,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x1b4,0x4]
+        - int_attr: [0x0,0xb3,0x4]
+
+    - name: "serial@feba0000"
+      type: "phy_common"
+      mem:
+        - "0xfeba0000,0x1000"
+      int:
+        - int_attr: [0x0,0x152,0x4]
+          parent: "pintc@0"
+
+    - name: "av1d@fdc70000"
+      type: "phy_common"
+      mem:
+        - "0xfdc70000,0x3000"
+      int:
+        - int_attr: [0x0,0x6c,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0x6b,0x4]
+        - int_attr: [0x0,0x6a,0x4]
+
+    - name: "usb@fcd00000"
+      type: "phy_common"
+      mem:
+        - "0xfcd00000,0x400000"
+      int:
+        - int_attr: [0x0,0xde,0x4]
+          parent: "pintc@0"
+
+    - name: "usb@fc400000"
+      type: "phy_common"
+      mem:
+        - "0xfc400000,0x400000"
+      int:
+        - int_attr: [0x0,0xdd,0x4]
+          parent: "pintc@0"
+
+    - name: "gpio@fd8a0000-mem"
+      type: "phy_common"
+      mem:
+        - "0xfd8a0000,0x1000"
+
+    - name: "gpio@fd8a0000-irq"
+      type: "phy_common"
+      int:
+        - int_attr: [0x0,0x115,0x4]
+          parent: "pintc@0"
+
+    - name: "gpio@fec20000-mem"
+      type: "phy_common"
+      mem:
+        - "0xfec20000,0x1000"
+
+    - name: "gpio@fec20000-irq"
+      type: "phy_common"
+      int:
+        - int_attr: [0x0,0x116,0x4]
+          parent: "pintc@0"
+
+    - name: "gpio@fec30000-mem"
+      type: "phy_common"
+      mem:
+        - "0xfec30000,0x1000"
+
+    - name: "gpio@fec30000-irq"
+      type: "phy_common"
+      int:
+        - int_attr: [0x0,0x117,0x4]
+          parent: "pintc@0"
+
+    - name: "gpio@fec40000-mem"
+      type: "phy_common"
+      mem:
+        - "0xfec40000,0x1000"
+
+    - name: "gpio@fec40000-irq"
+      type: "phy_common"
+      int:
+        - int_attr: [0x0,0x118,0x4]
+          parent: "pintc@0"
+
+    - name: "gpio@fec50000-mem"
+      type: "phy_common"
+      mem:
+        - "0xfec50000,0x1000"
+
+    - name: "gpio@fec50000-irq"
+      type: "phy_common"
+      int:
+        - int_attr: [0x0,0x119,0x4]
+          parent: "pintc@0"
+
+    - name: "arm-pmu"
+      type: "phy_common"
+      int:
+        - int_attr: [0x1,0x7,0x8]
+          parent: "pintc@0"
+
+    - name: "clock-controller@fd7c0000"
+      type: "phy_common"
+      mem:
+        - "0xfd7c0000,0x5c000"
+
+    - name: "syscon@fd58c000"
+      type: "phy_common"
+      mem:
+        - "0xfd58c000,0x1000"
+
+    - name: "debug@fd104000"
+      type: "phy_common"
+      mem:
+        - "0xfd104000,0x4000"
+        - "0xfd124000,0x4000"
+
+    - name: "ramoops@110000"
+      type: "phy_common"
+      mem:
+        - "0x110000,0xf0000"
+
+    - name: "power-management@fd8d8000"
+      type: "phy_common"
+      mem:
+        - "0xfd8d8000,0x1000"
+
+    - name: "syscon@fd5f0000"
+      type: "phy_common"
+      mem:
+        - "0xfd5f0000,0x10000"
+
+    - name: "qos@fdf66000"
+      type: "phy_common"
+      mem:
+        - "0xfdf66000,0x1000"
+
+    - name: "qos@fdf67000"
+      type: "phy_common"
+      mem:
+        - "0xfdf67000,0x1000"
+
+    - name: "qos@fdf36000"
+      type: "phy_common"
+      mem:
+        - "0xfdf36000,0x1000"
+
+    - name: "qos@fdf60000"
+      type: "phy_common"
+      mem:
+        - "0xfdf60000,0x1000"
+
+    - name: "qos@fdf61000"
+      type: "phy_common"
+      mem:
+        - "0xfdf61000,0x1000"
+
+    - name: "qos@fdf62000"
+      type: "phy_common"
+      mem:
+        - "0xfdf62000,0x1000"
+
+    - name: "qos@fdf63000"
+      type: "phy_common"
+      mem:
+        - "0xfdf63000,0x1000"
+
+    - name: "sram@10f000"
+      type: "phy_common"
+      mem:
+        - "0x10f000,0x1000"
+
+    - name: "otp@fecc0000"
+      type: "phy_common"
+      mem:
+        - "0xfecc0000,0x1000"
+
+    - name: "syscon@fd5b0000"
+      type: "phy_common"
+      mem:
+        - "0xfd5b0000,0x1000"
+
+    - name: "syscon@fd5b8000"
+      type: "phy_common"
+      mem:
+        - "0xfd5b8000,0x10000"
+
+    - name: "phy@fed80000"
+      type: "phy_common"
+      mem:
+        - "0xfed80000,0x10000"
+
+    - name: "hdmiphy@fed70000"
+      type: "phy_common"
+      mem:
+        - "0xfed70000,0x2000"
+
+    - name: "phy@fed90000"
+      type: "phy_common"
+      mem:
+        - "0xfed90000,0x10000"
+
+    - name: "pwm@fd8b0000"
+      type: "phy_common"
+      mem:
+        - "0xfd8b0000,0x1000"
+
+    - name: "syscon@fd5a8000"
+      type: "phy_common"
+      mem:
+        - "0xfd5a8000,0x1000"
+
+    - name: "qos@fdf64000"
+      type: "phy_common"
+      mem:
+        - "0xfdf64000,0x1000"
+
+    - name: "usb@fc000000"
+      type: "phy_common"
+      mem:
+        - "0xfc000000,0x400000"
+      int:
+        - int_attr: [0x0,0xdc,0x4]
+          parent: "pintc@0"
+
+    - name: "syscon@fd5c8000"
+      type: "phy_common"
+      mem:
+        - "0xfd5c8000,0x4000"
+
+    - name: "syscon@fd5ac000"
+      type: "phy_common"
+      mem:
+        - "0xfd5ac000,0x4000"
+
+    - name: "qos@fdf3e000"
+      type: "phy_common"
+      mem:
+        - "0xfdf3e000,0x1000"
+
+    - name: "phy@fee20000"
+      type: "phy_common"
+      mem:
+        - "0xfee20000,0x1000"
+
+    - name: "phy@fee00000"
+      type: "phy_common"
+      mem:
+        - "0xfee00000,0x1000"
+
+    - name: "syscon@fd5cc000"
+      type: "phy_common"
+      mem:
+        - "0xfd5cc000,0x4000"
+
+    - name: "syscon@fd588000"
+      type: "phy_common"
+      mem:
+        - "0xfd588000,0x2000"
+
+    - name: "syscon@fd58a000"
+      type: "phy_common"
+      mem:
+        - "0xfd58a000,0x2000"
+
+    - name: "qos@fdf39000"
+      type: "phy_common"
+      mem:
+        - "0xfdf39000,0x1000"
+
+    - name: "i2s@fddf0000"
+      type: "phy_common"
+      mem:
+        - "0xfddf0000,0x1000"
+      int:
+        - int_attr: [0x0,0xb9,0x4]
+          parent: "pintc@0"
+
+    - name: "i2s@fe470000"
+      type: "phy_common"
+      mem:
+        - "0xfe470000,0x1000"
+      int:
+        - int_attr: [0x0,0xb4,0x4]
+          parent: "pintc@0"
+
+    - name: "i2s@fddf4000"
+      type: "phy_common"
+      mem:
+        - "0xfddf4000,0x1000"
+      int:
+        - int_attr: [0x0,0xba,0x4]
+          parent: "pintc@0"
+
+    - name: "i2s@fddf8000"
+      type: "phy_common"
+      mem:
+        - "0xfddf8000,0x1000"
+      int:
+        - int_attr: [0x0,0xbb,0x4]
+          parent: "pintc@0"
+
+    - name: "qos@fdf3d800"
+      type: "phy_common"
+      mem:
+        - "0xfdf3d000,0x1000"
+
+    - name: "syscon@fd5a4000"
+      type: "phy_common"
+      mem:
+        - "0xfd5a4000,0x2000"
+
+    - name: "syscon@fd5e0000"
+      type: "phy_common"
+      mem:
+        - "0xfd5e0000,0x1000"
+
+    - name: "syscon@fd5e4000"
+      type: "phy_common"
+      mem:
+        - "0xfd5e4000,0x1000"
+
+    - name: "phy@fed60000"
+      type: "phy_common"
+      mem:
+        - "0xfed60000,0x2000"
+
+    - name: "0x100000"
+      type: "phy_common"
+      mem:
+        - "0x100000,0x1000"
+
+    - name: "rng@fe378000"
+      type: "phy_common"
+      mem:
+        - "0xfe378000,0x1000"
+      int:
+        - int_attr: [0x0,0x190,0x4]
+          parent: "pintc@0"
+
+    - name: "syscon@fd5a0000"
+      type: "phy_common"
+      mem:
+        - "0xfd5a0000,0x1000"
+
+    - name: "0x101000"
+      type: "phy_common"
+      mem:
+        - "0x101000,0x1000"
+
+    - name: "0x102000"
+      type: "phy_common"
+      mem:
+        - "0x102000,0x1000"
+
+    - name: "qos@fdf35000"
+      type: "phy_common"
+      mem:
+        - "0xfdf35000,0x1000"
+
+    - name: "dfi@fe060000"
+      type: "phy_common"
+      mem:
+        - "0xfe060000,0x10000"
+
+    - name: "syscon@fd5a2000"
+      type: "phy_common"
+      mem:
+        - "0xfd5a2000,0x1000"
+
+    - name: "syscon@fd5a6000"
+      type: "phy_common"
+      mem:
+        - "0xfd5a6000,0x2000"
+
+    - name: "qos@fdf70000"
+      type: "phy_common"
+      mem:
+        - "0xfdf70000,0x3000"
+
+    - name: "syscon@fd594000"
+      type: "phy_common"
+      mem:
+        - "0xfd594000,0x1000"
+
+    - name: "syscon@fd590000"
+      type: "phy_common"
+      mem:
+        - "0xfd590000,0x1000"
+
+    - name: "syscon@fd592000"
+      type: "phy_common"
+      mem:
+        - "0xfd592000,0x1000"
+
+    - name: "cspmu@fd10c000"
+      type: "phy_common"
+      mem:
+        - "0xfd10c000,0x4000"
+        - "0xfd12c000,0x4000"
+
+    - name: "fiq-debugger"
+      type: "phy_common"
+      int:
+        - int_attr: [0x0,0x1a7,0x8]
+          parent: "pintc@0"
+
+    - name: "pcie@fe190000"
+      type: "phy_common"
+      mem:
+        - "0xfe190000,0x10000"
+        - "0xa41000000,0x400000"
+        - "0xf4000000,0x100000"
+        - "0xf4200000,0xe00000"
+      int:
+        - int_attr: [0x0,0xfd,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0xfc,0x4]
+        - int_attr: [0x0,0xfb,0x4]
+        - int_attr: [0x0,0xfa,0x4]
+        - int_attr: [0x0,0xf9,0x4]
+
+    - name: "pwm12@febf0000"
+      type: "phy_common"
+      mem:
+        - "0xfebf0000,0x1000"
+
+    - name: "pwm5@febd0000"
+      type: "phy_common"
+      mem:
+        - "0xfebd0000,0x1000"
+
+    - name: "pwm8@febe0000"
+      type: "phy_common"
+      mem:
+        - "0xfebe0000,0x1000"
+
+    - name: "syscon@fd5f0000rtt"
+      type: "phy_common"
+      mem:
+        - "0xfd5f0000,0x10000"
+
+    - name: "gpio@fd8a0000rtt-mem"
+      type: "phy_common"
+      mem:
+        - "0xfd8a0000,0x1000"
+
+    - name: "gpio@fd8a0000rtt-irq"
+      type: "phy_common"
+      int:
+        - int_attr: [0x0,0x115,0x4]
+          parent: "pintc@0"
+
+    - name: "gpio@fec20000rtt-mem"
+      type: "phy_common"
+      mem:
+        - "0xfec20000,0x1000"
+
+    - name: "gpio@fec20000rtt-irq"
+      type: "phy_common"
+      int:
+        - int_attr: [0x0,0x116,0x4]
+          parent: "pintc@0"
+
+    - name: "gpio@fec30000rtt-mem"
+      type: "phy_common"
+      mem:
+        - "0xfec30000,0x1000"
+
+    - name: "gpio@fec30000rtt-irq"
+      type: "phy_common"
+      int:
+        - int_attr: [0x0,0x117,0x4]
+          parent: "pintc@0"
+
+    - name: "gpio@fec40000rtt-mem"
+      type: "phy_common"
+      mem:
+        - "0xfec40000,0x1000"
+
+    - name: "gpio@fec40000rtt-irq"
+      type: "phy_common"
+      int:
+        - int_attr: [0x0,0x118,0x4]
+          parent: "pintc@0"
+
+    - name: "gpio@fec50000rtt-mem"
+      type: "phy_common"
+      mem:
+        - "0xfec50000,0x1000"
+
+    - name: "gpio@fec50000rtt-irq"
+      type: "phy_common"
+      int:
+        - int_attr: [0x0,0x119,0x4]
+          parent: "pintc@0"
+
+    - name: "serial@feb70000"
+      type: "phy_common"
+      mem:
+        - "feb70000,0x1000"
+      int:
+        - int_attr: [0x0,0x14f,0x4]
+          parent: "pintc@0"
+
+    - name: "serial@feb60000"
+      type: "phy_common"
+      mem:
+        - "feb60000,0x1000"
+      int:
+        - int_attr: [0x0,0x14e,0x4]
+          parent: "pintc@0"
+
+    - name: "phy@fee10000"
+      type: "phy_common"
+      mem:
+        - "fee10000,0x1000"
+
+    - name: "pcie@fe170000"
+      type: "phy_common"
+      mem:
+        - "0xfe170000,0x10000"
+        - "0xa40800000,0x400000"
+        - "0xf2000000,0x100000"
+        - "0xf2100000,0x100000"
+        - "0xf2200000,0xe00000"
+        - "0x980000000,0x40000000"
+      int:
+        - int_attr: [0x0,0xf3,0x4]
+          parent: "pintc@0"
+        - int_attr: [0x0,0xf2,0x4]
+        - int_attr: [0x0,0xf1,0x4]
+        - int_attr: [0x0,0xf0,0x4]
+        - int_attr: [0x0,0xef,0x4]
+
+software:
+  - name: "shm@1"
+    type: "sharedmemory"
+    mem: "0x0,0x800000"
+    args: 
+      - "align=16u,0x200000"
+
+  - name: "shm@2"
+    type: "sharedmemory"
+    mem: "0x0,0xa00000"
+    args:
+      - "align=16u,0x200000"
+
+data:
+  - name: "Kernel.bin"
+    type: "kernel"
+  - name: "kernel.dtb"
+    type: "fdt"
+  - name: "Initrd.img"
+    type: "initrd"
+  - name: "rtthread.bin"
+    type: "kernel"
+  - name: "rt_thread.dtb"
+    type: "fdt"
+
+running_param: none
+
+vm:
+  - ["vm_linux.yaml","vm_rtt.yaml"]

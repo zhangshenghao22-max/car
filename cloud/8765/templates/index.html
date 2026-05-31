@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>小车云平台</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero">
+        <div>
+          <div class="hero-kicker">Car Cloud</div>
+          <h1 id="board-label">等待小车连接</h1>
+          <p id="board-meta">页面会自动刷新，显示地图、路线和小车当前位置。</p>
+        </div>
+        <button id="btn-refresh" type="button">刷新</button>
+      </header>
+
+      <section class="status-row">
+        <article class="status-card">
+          <span>连接状态</span>
+          <strong id="board-online">离线</strong>
+          <small id="last-seen">-</small>
+        </article>
+        <article class="status-card">
+          <span>当前模式</span>
+          <strong id="mode-text">等待中</strong>
+          <small id="mode-detail">-</small>
+        </article>
+        <article class="status-card">
+          <span>导航状态</span>
+          <strong id="nav-text">未开始</strong>
+          <small id="goal-text">-</small>
+        </article>
+        <article class="status-card">
+          <span>数据更新时间</span>
+          <strong id="upload-age">-</strong>
+          <small id="frame-age">-</small>
+        </article>
+      </section>
+
+      <main class="main-grid">
+        <article class="panel panel-map">
+          <div class="panel-head">
+            <div>
+              <h2>实时地图</h2>
+              <p>蓝线是规划路线，绿箭头是小车，红圈是目标点。</p>
+            </div>
+            <span class="pill" id="map-meta">等待地图</span>
+          </div>
+          <div class="frame-shell large">
+            <div class="image-stack">
+              <img id="map-frame" alt="map frame" />
+              <canvas id="map-overlay"></canvas>
+            </div>
+            <div class="placeholder" id="map-placeholder">等待地图画面</div>
+          </div>
+          <div class="summary-box" id="path-summary">还没有路线数据</div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>激光雷达</h2>
+              <p>显示当前扫描画面。</p>
+            </div>
+          </div>
+          <div class="frame-shell">
+            <img id="scan-frame" alt="scan frame" />
+            <div class="placeholder" id="scan-placeholder">等待扫描画面</div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>小车状态</h2>
+              <p>只保留当前最关键的信息。</p>
+            </div>
+          </div>
+          <dl class="simple-list" id="car-summary"></dl>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>最新提示</h2>
+              <p>最近的运行提示会显示在这里。</p>
+            </div>
+          </div>
+          <pre class="log-box" id="log-box">等待新消息</pre>
+        </article>
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>

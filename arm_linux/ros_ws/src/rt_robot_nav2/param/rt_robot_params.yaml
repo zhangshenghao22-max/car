@@ -1,0 +1,362 @@
+# ============================================================================
+# Nav2参数配置文件 / Nav2 Parameters Configuration File
+# ============================================================================
+#
+# 注意：速度限制参数现在统一管理在：
+# Note: Velocity limits are now centrally managed in:
+#   rt_robot_nav2/config/velocity_limits.yaml
+#
+# 修改速度限制时，请同时修改两个文件：
+# When modifying velocity limits, update BOTH files:
+#   1. rt_robot_nav2/config/velocity_limits.yaml (主要 / primary)
+#   2. rt_robot_nav2/param/rt_robot_params.yaml (Nav2控制器 / Nav2 controller)
+#
+# 统一配置确保：
+# Unified configuration ensures:
+#   - 键盘遥控速度限制一致
+#   - Nav2导航速度限制一致
+#   - 避免配置不一致导致的问题
+#
+# ============================================================================
+
+amcl:
+  ros__parameters:
+    use_sim_time: False
+    alpha1: 0.9
+    alpha2: 0.1
+    alpha3: 0.05
+    alpha4: 0.01
+    alpha5: 0.04
+    base_frame_id: "base_footprint"  # Standard ROS convention: base_footprint at ground level
+    beam_skip_distance: 0.5
+    beam_skip_error_threshold: 0.9
+    beam_skip_threshold: 0.3
+    do_beamskip: false
+    global_frame_id: "map"
+    lambda_short: 0.1
+    laser_likelihood_max_dist: 2.0
+    laser_max_range: 100.0
+    laser_min_range: -1.0
+    laser_model_type: "likelihood_field"
+    max_beams: 60
+    max_particles: 2000
+    min_particles: 500
+    odom_frame_id: "odom"  # Changed from odom_combined to odom
+    pf_err: 0.02
+    pf_z: 0.85
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+    resample_interval: 2
+    robot_model_type: "omnidirectional"  # Changed to omnidirectional for mecanum wheel robot
+    save_pose_rate: 0.5  # Rate at which to save the pose (Hz)
+    # Note: AMCL publishes TF at this rate, but may need laser scan to start publishing
+    sigma_hit: 0.02
+    tf_broadcast: true
+    transform_tolerance: 0.3
+    # Update thresholds: lower values make AMCL update more frequently
+    # update_min_d: minimum distance (meters) robot must move before AMCL updates
+    # update_min_a: minimum angle (radians) robot must rotate before AMCL updates
+    # Reduced thresholds for more responsive localization (original: 0.2, 0.25)
+    update_min_d: 0.025   # Reduced from 0.25 to 0.05m (5cm) for more frequent updates
+    update_min_a: 0.06   # Reduced from 0.2 to 0.05rad (~2.9°) for more frequent updates
+    z_hit: 0.7
+    z_max: 0.001
+    z_rand: 0.059
+    z_short: 0.24
+    scan_topic: /scan
+    always_reset_initial_pose: false  # Set to false following mature project practices: initial pose is set via parameters only once at startup
+    map_topic: /map
+    # Initial Pose - should be set via /initialpose topic from map yaml (auto_initialpose.py)
+    # Disable hardcoded initial pose to force use of /initialpose topic
+    # This ensures AMCL uses the correct initial pose saved in map yaml
+    set_initial_pose: false  # Set to false to use /initialpose topic instead of hardcoded values
+    # Note: initial_pose parameters below are ignored when set_initial_pose: false
+    # They are kept for backward compatibility but should not be used
+    initial_pose.x: 0.0
+    initial_pose.y: 0.0
+    initial_pose.z: 0.0
+    initial_pose.yaw: 0.0
+
+amcl_map_client:
+  ros__parameters:
+    use_sim_time: False
+
+amcl_rclcpp_node:
+  ros__parameters:
+    use_sim_time: False
+
+bt_navigator:
+  ros__parameters:
+    default_bt_xml_filename: "navigate_w_replanning_time.xml"
+    use_sim_time: False
+    global_frame: map
+    robot_base_frame: base_footprint  # Standard ROS convention: base_footprint at ground level
+    odom_topic: /odom  # Changed from /odom_combined
+    bt_loop_duration: 5  # 🔧 REDUCED: From 10 to 5 ms - faster tick, less CPU per tick
+    default_server_timeout: 30  # 🔧 INCREASED: From 20 to 30 seconds - prevent timeout
+    # Add action server wait timeout to ensure servers are ready
+    wait_for_service_timeout: 10.0  # Wait up to 10 seconds for action servers to be ready
+    action_server_preserve_once_duration: 10.0  # Keep action server state for 10 seconds after completion
+    action_server_timeout: 30.0  # 🔧 INCREASED: From 20 to 30 seconds
+    # Additional parameters to fix "send_goal failed" issue in Nav2 Foxy
+    goal_reached_tol: 0.25  # Distance tolerance for considering goal reached
+    transform_timeout: 2.0  # Timeout for TF transforms (seconds)
+    error_code_tol: 3  # 🔧 INCREASED: From 1 to 3 - more tolerant to transient errors
+    plugin_lib_names:
+    - nav2_compute_path_to_pose_action_bt_node
+    # Note: nav2_compute_path_through_poses_action_bt_node is not available in ROS2 Foxy
+    # - nav2_compute_path_through_poses_action_bt_node
+    - nav2_follow_path_action_bt_node
+    - nav2_back_up_action_bt_node
+    - nav2_spin_action_bt_node
+    - nav2_wait_action_bt_node
+    - nav2_clear_costmap_service_bt_node
+    - nav2_is_stuck_condition_bt_node
+    - nav2_goal_reached_condition_bt_node
+    - nav2_initial_pose_received_condition_bt_node
+    - nav2_goal_updated_condition_bt_node
+    - nav2_reinitialize_global_localization_service_bt_node
+    - nav2_rate_controller_bt_node
+    - nav2_distance_controller_bt_node
+    - nav2_speed_controller_bt_node
+    - nav2_truncate_path_action_bt_node
+    - nav2_recovery_node_bt_node
+    - nav2_pipeline_sequence_bt_node
+    - nav2_round_robin_node_bt_node
+    - nav2_transform_available_condition_bt_node
+    - nav2_time_expired_condition_bt_node
+    - nav2_distance_traveled_condition_bt_node
+    - nav2_is_battery_low_condition_bt_node
+    - nav2_goal_updater_node_bt_node
+    # Note: nav2_navigate_through_poses_action_bt_node is not available in ROS2 Foxy
+    # - nav2_navigate_through_poses_action_bt_node
+    - nav2_navigate_to_pose_action_bt_node
+    # Note: nav2_remove_passed_goals_action_bt_node is not available in ROS2 Foxy
+    # - nav2_remove_passed_goals_action_bt_node
+
+bt_navigator_rclcpp_node:
+  ros__parameters:
+    use_sim_time: False
+
+controller_server:
+  ros__parameters:
+    use_sim_time: False
+    controller_frequency: 3.0  # 🔧 EXTREME: From 5.0 to 3.0 Hz - LAST RESORT for weak hardware
+    # Action server parameters to handle "send_goal_failed" issue
+    action_server_report_period: 1.0  # How often to report action server status (seconds)
+    action_server_result_timeout: 300.0  # How long to keep results (5 minutes)
+    # Velocity thresholds: for considering the robot stopped
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugins: ["general_goal_checker"]
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.3  # Reduced from 0.5 to 0.3 for slow-speed navigation
+      movement_time_allowance: 60.0  # Increased from 10.0 to 60.0 seconds for slow-speed navigation
+
+    general_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.52  # ~30° - increased to prevent infinite rotation
+      stateful: False  # Changed to False to fix action server state management issues in Nav2 Foxy
+
+    FollowPath:
+      plugin: "dwb_core::DWBLocalPlanner"
+      debug_trajectory_details: False  # 🔧 DISABLED: Reduce logging overhead
+      # Fixed velocity settings for navigation:
+      # linear.x: +0.1 (forward) or -0.1 (backward) or 0.0 (stop)
+      # linear.y: +0.1 (left) or -0.1 (right) or 0.0 (stop)
+      # angular.z: +0.4 (turn left) or -0.4 (turn right) or 0.0 (stop)
+      min_vel_x: -0.3   # Maximum backward velocity (LIMITED to 0.3 m/s) - further reduced for stability
+      max_vel_x: 0.3    # Maximum forward velocity (LIMITED to 0.3 m/s) - further reduced for stability
+      min_vel_y: 0.0   # Fixed right velocity (mecanum wheel, if needed change to -0.3)
+      max_vel_y: 0.0    # Fixed left velocity (mecanum wheel, if needed change to 0.3)
+      min_vel_theta: -0.5  # Allow clockwise rotation (negative angular velocity, LIMITED to 0.5 rad/s)
+      max_vel_theta: 0.5   # Allow counter-clockwise rotation (positive angular velocity, LIMITED to 0.5 rad/s)
+      min_speed_xy: 0.0
+      max_speed_xy: 0.3  # Maximum combined linear speed (LIMITED to 0.3 m/s for stability) - reduced from 0.4
+      min_speed_theta: 0.0
+      # Acceleration limits: set to allow smooth transitions between fixed speeds
+      acc_lim_x: 0.5   # X direction acceleration limit (m/s²) - allow smooth transition to 0.1 m/s
+      acc_lim_y: 0.0   # Y direction acceleration limit (m/s²) - allow smooth transition to 0.1 m/s
+      acc_lim_theta: 0.9  # Angular acceleration limit (rad/s²) - allow smooth transition to 0.4 rad/s
+      decel_lim_x: -0.5   # X direction deceleration limit (m/s²)
+      decel_lim_y: -0.0   # Y direction deceleration limit (m/s²)
+      decel_lim_theta: -0.9  # Angular deceleration limit (rad/s²)
+      # 🔧 VELOCITY SAMPLES: EXTREME reduction - LAST RESORT for weak hardware
+      vx_samples: 3     # 🔧 EXTREME: From 5 to 3 - MINIMUM for functionality
+      vy_samples: 1     # Minimal lateral sampling
+      vtheta_samples: 3  # 🔧 EXTREME: From 5 to 3 - MINIMUM for functionality
+      sim_time: 0.8  # 🔧 EXTREME: From 1.0 to 0.8 - faster computation
+      # Longer simulation time allows planner to see further ahead and make better decisions
+      # This is especially important for omnidirectional robots that can move in any direction
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+      transform_tolerance: 0.3
+      xy_goal_tolerance: 0.25
+      trans_stopped_velocity: 0.05  # Reduced to 0.05 for better stop detection (must be > min_vel_x threshold)
+      short_circuit_trajectory_evaluation: True
+      stateful: False  # Changed to False to prevent action server state issues between goals
+      # 🔧 SIMPLIFIED CRITICS: Removed less important critics to reduce computation
+      critics: ["Oscillation", "BaseObstacle", "PathAlign", "GoalDist"]
+      # Removed: GoalAlign (adds significant computation)
+      # Removed: PathDist (redundant with PathAlign)
+      # Keep minimal set for stability
+      BaseObstacle.scale: 0.04
+      PathAlign.scale: 32.0  # Reduced from 50.0 to lower computation
+      PathAlign.forward_point_distance: 0.1
+      GoalDist.scale: 20.0  # Increased to compensate for removed critics
+
+controller_server_rclcpp_node:
+  ros__parameters:
+    use_sim_time: False
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: odom  # Changed from odom_combined
+      robot_base_frame: base_footprint  # Standard ROS convention: base_footprint at ground level
+      use_sim_time: False
+      rolling_window: true
+      width: 3
+      # Increase transform tolerance to handle TF timing issues
+      transform_tolerance: 0.3
+      height: 3
+      resolution: 0.05
+      robot_radius: 0.2
+      plugins: ["obstacle_layer", "inflation_layer"]
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 10.0
+        inflation_radius: 0.1
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          # Increase raytrace range so clearing keeps up with robot motion (align with mature project)
+          raytrace_max_range: 10.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+      # Note: local_costmap typically doesn't use static_layer (only obstacle_layer and inflation_layer)
+      # static_layer is only used in global_costmap
+      always_send_full_costmap: False
+  local_costmap_client:
+    ros__parameters:
+      use_sim_time: False
+  local_costmap_rclcpp_node:
+    ros__parameters:
+      use_sim_time: False
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      # 🔧 REDUCED update_frequency to lower CPU load
+      update_frequency: 2.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: base_footprint  # Standard ROS convention: base_footprint at ground level
+      use_sim_time: False
+      robot_radius: 0.2
+      resolution: 0.05
+      track_unknown_space: true
+      # Increase transform tolerance to handle TF timing issues
+      transform_tolerance: 0.3
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 10.0
+        inflation_radius: 0.1
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          # Use longer raytrace range like mature project to better clear obstacles and reduce pollution
+          raytrace_max_range: 10.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+      always_send_full_costmap: False
+  global_costmap_client:
+    ros__parameters:
+      use_sim_time: False
+  global_costmap_rclcpp_node:
+    ros__parameters:
+      use_sim_time: False
+
+map_server:
+  ros__parameters:
+    use_sim_time: False
+    yaml_filename: ""
+
+planner_server:
+  ros__parameters:
+    use_sim_time: False
+    expected_planner_frequency: 2.0  # 🔧 EXTREME: From 5.0 to 2.0 Hz - LAST RESORT
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.5
+      use_astar: false
+      allow_unknown: true
+      # Standardized transform tolerance for TF lookups
+      transform_tolerance: 0.3
+
+planner_server_rclcpp_node:
+  ros__parameters:
+    use_sim_time: False
+
+recoveries_server:
+  ros__parameters:
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 10.0
+    recovery_plugins: ["spin", "backup", "wait"]
+    spin:
+      plugin: "nav2_recoveries/Spin"
+    backup:
+      plugin: "nav2_recoveries/BackUp"
+    wait:
+      plugin: "nav2_recoveries/Wait"
+    global_frame: odom  # Changed from odom_combined
+    robot_base_frame: base_footprint  # Standard ROS convention: base_footprint at ground level
+    transform_tolerance: 0.1
+    use_sim_time: False
+    simulate_ahead_time: 2.0
+    # Recovery action velocity limits: using fixed angular velocity (angular.z: ±0.4)
+    max_rotational_vel: 0.4   # Fixed rotational velocity for recovery actions (rad/s) - matching navigation fixed speed
+    min_rotational_vel: 0.4   # Fixed rotational velocity for recovery actions (rad/s) - matching navigation fixed speed
+    rotational_acc_lim: 0.5   # Rotational acceleration limit for recovery actions (rad/s²) - matching navigation acceleration
+
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: False
+    stop_on_failure: false
+    loop_rate: 20
+    stop_on_failure: false
+
+waypoint_follower_rclcpp_node:
+  ros__parameters:
+    use_sim_time: False

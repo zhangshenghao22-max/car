@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<view>
+  <view x="0" y="0" width="1440" height="480" card="0">
+    <screen x="0"   y="0" z="0" width="540" height="480" uio="0">rt-smart screen</screen>
+    <screen x="540" y="0" z="0" width="900" height="480" uio="1">linux screen</screen>
+  </view>
+</view>
+

@@ -1,0 +1,43 @@
+def moveForward(distance):
+    """
+    控制小车向前移动指定距离。
+
+    Parameters:
+    - distance (int): 小车运行距离，单位为米
+
+    Returns:
+    - bool: 如果移动成功，则为True，否则为False。
+    """
+
+def moveBackward(distance):
+    """
+    控制小车向后移动指定距离。
+
+    Parameters:
+    - distance (int): 小车移动距离，单位为米
+
+    Returns:
+    - bool: 如果移动成功，则为True，否则为False。
+    """
+
+def turnLeft(degree):
+    """
+    控制小车向左转弯指定角度。
+
+    Parameters:
+    - degree (int): 小车向左转弯角度，单位为度。
+
+    Returns:
+    - bool: 如果转弯成功，则为True，否则为False。
+    """
+
+def turnRight(degree):
+    """
+    控制小车向右转弯指定角度。
+
+    Parameters:
+    - degree (int): 小车向右转弯角度，单位为度。
+
+    Returns:
+    - bool: 如果转弯成功，则为True，否则为False。
+    """

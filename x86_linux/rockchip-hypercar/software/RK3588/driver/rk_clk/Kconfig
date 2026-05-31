@@ -1,0 +1,5 @@
+config RT_CLK_ROCKCHIP_RK3588
+    bool "Rockchip RK3588 clock controller support"
+    select RT_USING_OFW
+    select RT_USING_RESET
+    default n

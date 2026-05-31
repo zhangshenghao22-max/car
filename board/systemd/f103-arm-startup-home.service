@@ -1,0 +1,20 @@
+# /etc/systemd/system/f103-arm-startup-home.service
+[Unit]
+Description=Set F103 arm startup six-axis home pose
+After=f103-usb-chassis.service
+Requires=f103-usb-chassis.service
+
+[Service]
+Type=oneshot
+User=rock
+WorkingDirectory=/home/rock/Desktop/rt_direct_tools
+Environment=ROS_DOMAIN_ID=17
+Environment=ROS_LOCALHOST_ONLY=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/bash /home/rock/Desktop/rt_direct_tools/start_f103_arm_startup_home.sh
+TimeoutStartSec=35
+StandardOutput=append:/home/rock/Desktop/rt_direct_tools/logs/f103_arm_startup_home.log
+StandardError=append:/home/rock/Desktop/rt_direct_tools/logs/f103_arm_startup_home.log
+
+[Install]
+WantedBy=multi-user.target

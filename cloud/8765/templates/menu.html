@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>基于视觉感知与路径规划的室内电力巡检机器人</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260527-unified-eval1') }}" />
+  </head>
+  <body class="menu-body" data-page="menu">
+    <div class="menu-shell">
+      <header class="menu-hero menu-hero-status">
+        <div class="menu-hero-copy">
+          <div class="hero-kicker">Car Cloud</div>
+          <h1>基于视觉感知与路径规划的室内电力巡检机器人</h1>
+          <p>请选择要查看的功能页面。</p>
+        </div>
+        <aside class="robot-status-card" aria-label="机器人状态">
+          <div class="robot-status-top">
+            <span class="robot-status-dot" id="robot-status-dot" aria-hidden="true"></span>
+            <div>
+              <strong id="robot-work-state">待命状态</strong>
+            </div>
+          </div>
+          <dl class="robot-status-list">
+            <div>
+              <dt>系统网络延迟</dt>
+              <dd id="robot-network-latency">-- ms</dd>
+            </div>
+            <div>
+              <dt>当前任务</dt>
+              <dd id="robot-current-task">L2告警复核</dd>
+            </div>
+          </dl>
+        </aside>
+      </header>
+
+      <main class="menu-dashboard">
+        <section class="menu-alarm-panel alarm-state-none" id="menu-alarm-panel" tabindex="0" aria-expanded="false">
+          <div class="alarm-card-head">
+            <div>
+              <div class="alarm-kicker">Alarm Monitor</div>
+              <h2 id="alarm-title">无警告</h2>
+              <p id="alarm-summary">正在读取报警状态...</p>
+            </div>
+            <span class="alarm-level-badge" id="alarm-level-badge">正常</span>
+          </div>
+
+          <div class="alarm-stage-row" aria-hidden="true">
+            <span data-stage="0">正常</span>
+            <span data-stage="3">三级</span>
+            <span data-stage="2">二级</span>
+            <span data-stage="1">一级</span>
+          </div>
+
+          <div class="alarm-time-row">
+            <span>报警时间</span>
+            <strong id="alarm-time">--</strong>
+          </div>
+
+          <div class="alarm-module-list" id="alarm-module-list">
+            <div class="alarm-empty">等待柜内环境数据。</div>
+          </div>
+
+          <div class="alarm-arm-card">
+            <div>
+              <strong>机械臂开关</strong>
+              <small id="alarm-arm-state">已关闭（未下发）</small>
+            </div>
+            <div class="alarm-switch-actions" aria-label="机械臂开关 UI 预留">
+              <button id="alarm-arm-open" type="button">打开</button>
+              <button id="alarm-arm-close" type="button" class="subtle-btn is-active">关闭</button>
+            </div>
+          </div>
+
+          <button class="alarm-detail-toggle" id="alarm-detail-toggle" type="button" aria-expanded="false">
+            查看异常数据
+          </button>
+
+          <div class="alarm-detail" id="alarm-detail" hidden>
+            <div class="alarm-detail-title">异常模块数据</div>
+            <div class="alarm-detail-list" id="alarm-detail-list"></div>
+          </div>
+        </section>
+
+        <section class="menu-card-area" aria-label="功能入口">
+          <div class="menu-grid">
+            <a class="menu-card" href="/mapping">
+              <div class="menu-icon">M</div>
+              <h2>建图</h2>
+              <p>查看实时地图、雷达画面和建图状态。</p>
+              <span>进入建图页面</span>
+            </a>
+
+            <a class="menu-card" href="/navigation">
+              <div class="menu-icon">N</div>
+              <h2>导航</h2>
+              <p>查看地图、路径规划、目标点和导航状态。</p>
+              <span>进入导航页面</span>
+            </a>
+
+            <a class="menu-card" href="/recognition">
+              <div class="menu-icon">V</div>
+              <h2>图像识别</h2>
+              <p>拍照识别摄像头画面，并查看历史识别照片。</p>
+              <span>进入图像识别页面</span>
+            </a>
+
+            <a class="menu-card" href="/data">
+              <div class="menu-icon">D</div>
+              <h2>数据展示</h2>
+              <p>查看配电柜电压、电流、温控、启停状态、选择开关和柜内环境数据。</p>
+              <span>进入数据展示页面</span>
+            </a>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='menu_alarm.js', v='20260527-unified-eval1') }}" defer></script>
+  </body>
+</html>

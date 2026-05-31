@@ -1,0 +1,26 @@
+menuconfig BSP_USING_SDCARD
+    bool "Using SD Card"
+    default n
+
+if BSP_USING_SDCARD
+    config RT_SDIO_DW_MMC
+        bool "Synopsys DesignWare MMC Family"
+        select RT_USING_PINCTRL
+        select RT_USING_RESET
+        select RT_USING_DEVICE_IPC
+        select RT_USING_SYSTEM_WORKQUEUE
+        default n
+
+    config RT_SDIO_DW_MMC_PCI
+        bool "Synopsys Designware MCI support on PCI bus"
+        depends on RT_SDIO_DW_MMC
+        select RT_USING_PCI
+        default n
+
+    config RT_SDIO_DW_MMC_ROCKCHIP
+        bool "Rockchip dw sdcard driver"
+        depends on RT_SDIO_DW_MMC
+        select RT_USING_OFW
+        default y
+
+endif

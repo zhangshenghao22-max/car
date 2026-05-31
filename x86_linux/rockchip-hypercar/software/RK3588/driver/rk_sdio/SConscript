@@ -1,0 +1,30 @@
+from building import *
+
+group = []
+
+if not GetDepend(['RT_USING_SDIO']) and not GetDepend(['RT_USING_DM']):
+    Return('group')
+
+cwd = GetCurrentDir()
+CPPPATH = [cwd + '/../../include']
+
+src = []
+
+if GetDepend(['RT_USING_DM']):
+    src += ['sdio_dm.c']
+
+if GetDepend(['RT_SDIO_DW_MMC']):
+    src += ['sdio-dw.c', 'sdio-dw-platfrom.c']
+
+if GetDepend(['RT_SDIO_DW_MMC_PCI']):
+    src += ['sdio-dw-pci.c']
+
+if GetDepend(['RT_SDIO_DW_MMC_ROCKCHIP']):
+    src += ['sdio-dw-rockchip.c']
+
+if GetDepend(['RT_USING_REGULATOR']):
+    src += ['regulator.c']
+
+group = DefineGroup('sdio', src, depend = [''], CPPPATH = CPPPATH)
+
+Return('group')

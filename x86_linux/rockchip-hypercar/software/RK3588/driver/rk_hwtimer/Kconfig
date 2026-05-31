@@ -1,0 +1,6 @@
+config RT_HWTIMER_ROCKCHIP
+    bool "RockChip Timer"
+    depends on RT_USING_DM
+    select RT_USING_HWTIMER
+    select RT_USING_KTIME
+    default n

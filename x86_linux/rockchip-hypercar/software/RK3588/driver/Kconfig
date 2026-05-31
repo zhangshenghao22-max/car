@@ -1,0 +1,12 @@
+menu "RT-Thread rockchip RK3500 drivers"
+
+source "$BSP_DIR/driver/rk_clk/Kconfig"
+source "$BSP_DIR/driver/rk_hwtimer/Kconfig"
+source "$BSP_DIR/driver/rk_sdio/Kconfig"
+source "$BSP_DIR/driver/rk_pwm/Kconfig"
+source "$BSP_DIR/driver/rk_pin/Kconfig"
+source "$BSP_DIR/driver/rk_pinctrl/Kconfig"
+source "$BSP_DIR/driver/uart8250/Kconfig"
+source "$BSP_DIR/driver/ivshmem/Kconfig"
+
+endmenu
