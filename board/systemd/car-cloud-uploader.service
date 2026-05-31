@@ -1,0 +1,31 @@
+# /etc/systemd/system/car-cloud-uploader.service
+[Unit]
+Description=Car cloud uploader and command poller
+After=network-online.target f103-usb-chassis.service
+Wants=network-online.target
+Requires=f103-usb-chassis.service
+
+[Service]
+Type=simple
+User=rock
+WorkingDirectory=/home/rock/Desktop/car_cloud_uploader
+Environment=ROS_DOMAIN_ID=17
+Environment=ROS_LOCALHOST_ONLY=1
+Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+Environment=CAR_CLOUD_SERVER_URL=http://115.159.33.216:8765
+Environment=CAR_CLOUD_UPLOAD_TOKEN=car-cloud-upload
+Environment=CAR_CLOUD_BOARD_ID=rk3588-f103-board
+Environment="CAR_CLOUD_BOARD_LABEL=RK3588 F103 Board"
+Environment=CAR_CLOUD_STATE_INTERVAL=1.0
+Environment=CAR_CLOUD_FRAME_INTERVAL=2.0
+Environment=CAR_CLOUD_ENABLE_TELEOP=0
+Environment=CAR_CLOUD_FOREGROUND=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/bash /home/rock/Desktop/car_cloud_uploader/start_board_linux_uploader.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

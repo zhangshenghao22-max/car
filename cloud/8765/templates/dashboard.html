@@ -111,37 +111,6 @@
             <button id="cmd-save-map" type="button">保存地图</button>
           </div>
 
-          <div class="teleop-card mapping-only">
-            <div class="teleop-head">
-              <div>
-                <strong>键盘控制</strong>
-                <p>点击接管后，用键盘在建图页直接控制小车。</p>
-              </div>
-              <span class="pill" id="teleop-status">未接管</span>
-            </div>
-            <div class="teleop-actions">
-              <button id="teleop-enable" type="button">接管键盘</button>
-              <button id="teleop-disable" type="button" class="subtle-btn">退出控制</button>
-            </div>
-            <div class="teleop-speed-row">
-              <button id="teleop-speed-down" type="button" class="subtle-btn">-</button>
-              <span id="teleop-speed-label">速度 2</span>
-              <button id="teleop-speed-up" type="button" class="subtle-btn">+</button>
-            </div>
-            <div class="teleop-key-grid" id="teleop-key-grid">
-              <span class="teleop-key" id="teleop-key-w">W</span>
-              <span class="teleop-key" id="teleop-key-a">A</span>
-              <span class="teleop-key" id="teleop-key-s">S</span>
-              <span class="teleop-key" id="teleop-key-d">D</span>
-              <span class="teleop-key" id="teleop-key-q">Q</span>
-              <span class="teleop-key" id="teleop-key-e">E</span>
-              <span class="teleop-key teleop-key-stop" id="teleop-key-space">空格急停</span>
-            </div>
-            <div class="summary-block teleop-summary" id="teleop-summary">
-              开始建图后，点击“接管键盘”，再用 W/S 前后、A/D 横移、Q/E 旋转。
-            </div>
-          </div>
-
           <div class="nav-map-load nav-only">
             <select id="saved-map-select">
               <option value="">暂无已保存地图</option>
@@ -177,6 +146,8 @@
               <button id="cmd-stop-cruise" type="button" class="subtle-btn">停止巡航</button>
             </div>
           </div>
+
+          <div class="summary-block" id="latest-command-summary">等待云平台指令</div>
 
           <details class="command-history-wrap">
             <summary>指令历史</summary>

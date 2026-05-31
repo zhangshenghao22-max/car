@@ -1119,6 +1119,18 @@ def command_authorized() -> bool:
     return bool(supplied) and supplied == command_token_value()
 
 
+def disabled_teleop_state(board_id: str = "") -> dict[str, Any]:
+    teleop = empty_teleop_state()
+    teleop.update(
+        {
+            "board_id": str(board_id or "").strip(),
+            "updated_at": utc_now_iso(),
+            "message": "cloud teleop disabled",
+        }
+    )
+    return teleop
+
+
 @app.route("/ping")
 def ping():
     return "pong", 200
@@ -1244,20 +1256,8 @@ def api_cloud_teleop():
     payload = request.get_json(force=True, silent=True)
     if payload is None or not isinstance(payload, dict):
         return json_error("invalid JSON payload")
-    try:
-        teleop = store.update_teleop(
-            board_id=payload.get("board_id", ""),
-            controller_id=payload.get("controller_id", ""),
-            page_mode=payload.get("page_mode", "mapping"),
-            enabled=bool(payload.get("enabled")),
-            pressed_keys=payload.get("pressed_keys", []),
-            speed_level=payload.get("speed_level", 0),
-            seq=payload.get("seq", 0),
-            force=bool(payload.get("force")),
-        )
-    except RuntimeError as exc:
-        return json_error(str(exc), 409)
-    return json_ok(message="teleop updated", teleop=teleop)
+    board_id = str(payload.get("board_id") or "").strip()
+    return json_ok(message="cloud teleop disabled", teleop=disabled_teleop_state(board_id))
 
 
 @app.route("/api/board/commands/next")
@@ -1278,8 +1278,7 @@ def api_board_teleop():
     board_id = str(request.args.get("board_id") or "").strip()
     if not board_id:
         return json_error("missing board_id")
-    teleop = store.teleop_for_board(board_id=board_id)
-    return json_ok(teleop=teleop)
+    return json_ok(teleop=disabled_teleop_state(board_id))
 
 
 @app.route("/api/board/commands/<command_id>/result", methods=["POST"])

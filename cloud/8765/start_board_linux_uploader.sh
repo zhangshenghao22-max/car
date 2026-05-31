@@ -9,6 +9,9 @@ LOG_FILE="${LOG_DIR}/board_linux_uploader.log"
 ROS_SETUP="/opt/ros/foxy/setup.bash"
 ROS_WS_SETUP="${HOME}/Desktop/rock_ws/ros_ws/install/setup.bash"
 
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-17}"
+export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-1}"
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 export CAR_CLOUD_SERVER_URL="${CAR_CLOUD_SERVER_URL:-http://115.159.33.216:8765}"
 export CAR_CLOUD_UPLOAD_TOKEN="${CAR_CLOUD_UPLOAD_TOKEN:-car-cloud-upload}"
 BOARD_URL="${CAR_CLOUD_BOARD_URL:-}"
@@ -16,8 +19,10 @@ export CAR_CLOUD_BOARD_ID="${CAR_CLOUD_BOARD_ID:-rk3588-f103-board}"
 export CAR_CLOUD_BOARD_LABEL="${CAR_CLOUD_BOARD_LABEL:-RK3588 F103 Board}"
 STATE_INTERVAL="${CAR_CLOUD_STATE_INTERVAL:-1.0}"
 FRAME_INTERVAL="${CAR_CLOUD_FRAME_INTERVAL:-2.0}"
+ENABLE_TELEOP="${CAR_CLOUD_ENABLE_TELEOP:-0}"
 TELEOP_INTERVAL="${CAR_CLOUD_TELEOP_INTERVAL:-0.15}"
 TELEOP_TOPIC="${CAR_CLOUD_TELEOP_TOPIC:-/cmd_vel_cmd}"
+FOREGROUND="${CAR_CLOUD_FOREGROUND:-0}"
 
 mkdir -p "${LOG_DIR}"
 
@@ -44,12 +49,18 @@ CMD=(
   --board-label "${CAR_CLOUD_BOARD_LABEL}"
   --state-interval "${STATE_INTERVAL}"
   --frame-interval "${FRAME_INTERVAL}"
-  --teleop-interval "${TELEOP_INTERVAL}"
-  --teleop-topic "${TELEOP_TOPIC}"
 )
 
 if [[ -n "${BOARD_URL}" ]]; then
   CMD+=(--board-url "${BOARD_URL}")
+fi
+
+if [[ "${ENABLE_TELEOP}" == "1" || "${ENABLE_TELEOP}" == "true" || "${ENABLE_TELEOP}" == "yes" ]]; then
+  CMD+=(--enable-teleop --teleop-interval "${TELEOP_INTERVAL}" --teleop-topic "${TELEOP_TOPIC}")
+fi
+
+if [[ "${FOREGROUND}" == "1" || "${FOREGROUND}" == "true" || "${FOREGROUND}" == "yes" ]]; then
+  exec "${CMD[@]}"
 fi
 
 nohup "${CMD[@]}" >>"${LOG_FILE}" 2>&1 &

@@ -359,7 +359,7 @@ def laser_scan_to_png(msg: LaserScan, size: int = 720) -> bytes | None:
 
 
 class RosMirror(Node):
-    def __init__(self, *, context: Context, teleop_topic: str):
+    def __init__(self, *, context: Context, teleop_topic: str, enable_teleop: bool = False):
         super().__init__("car_cloud_uploader", context=context)
         self.logs: deque[str] = deque(maxlen=80)
         self._log_lock = threading.Lock()
@@ -376,11 +376,13 @@ class RosMirror(Node):
         self.last_goal_at = 0.0
         self.robot_pose_source = ""
         self._last_summary = ""
+        self._teleop_enabled = bool(enable_teleop)
         self._teleop_topic = str(teleop_topic or "/cmd_vel_cmd").strip() or "/cmd_vel_cmd"
         self._teleop_state: dict[str, Any] = empty_teleop_state()
         self._teleop_state_lock = threading.Lock()
         self._teleop_last_publish_at = 0.0
         self._teleop_zero_sent = True
+        self._teleop_publisher = None
 
         map_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -403,10 +405,14 @@ class RosMirror(Node):
         self.create_subscription(Odometry, "/odom", self._on_odom, qos_profile_sensor_data)
         self.create_subscription(PoseStamped, "/goal_pose", self._on_goal, reliable_qos)
         self.create_subscription(PoseStamped, "/move_base_simple/goal", self._on_goal, reliable_qos)
-        self._teleop_publisher = self.create_publisher(Twist, self._teleop_topic, reliable_qos)
+        if self._teleop_enabled:
+            self._teleop_publisher = self.create_publisher(Twist, self._teleop_topic, reliable_qos)
 
         self.note("uploader connected to ROS topics")
-        self.note(f"cloud teleop publisher ready on {self._teleop_topic}")
+        if self._teleop_enabled:
+            self.note(f"cloud teleop publisher ready on {self._teleop_topic}")
+        else:
+            self.note("cloud teleop disabled")
 
     def note(self, message: str) -> None:
         stamp = time.strftime("%H:%M:%S")
@@ -462,6 +468,8 @@ class RosMirror(Node):
         return stamp > 0.0 and (now_s() - stamp) <= timeout_s
 
     def set_cloud_teleop(self, teleop_payload: dict[str, Any]) -> None:
+        if not self._teleop_enabled:
+            return
         clean = sanitize_teleop_state(teleop_payload, board_id=str(teleop_payload.get("board_id") or "").strip())
         with self._teleop_state_lock:
             previous_status = str(self._teleop_state.get("status") or "")
@@ -474,6 +482,8 @@ class RosMirror(Node):
             self.note(f"teleop status={status} owner={owner}")
 
     def _publish_cloud_twist(self, *, linear_x: float, linear_y: float, angular_z: float) -> None:
+        if self._teleop_publisher is None:
+            return
         message = Twist()
         message.linear.x = float(linear_x)
         message.linear.y = float(linear_y)
@@ -487,6 +497,8 @@ class RosMirror(Node):
         )
 
     def pump_cloud_teleop(self) -> None:
+        if not self._teleop_enabled:
+            return
         with self._teleop_state_lock:
             current = dict(self._teleop_state)
 
@@ -504,6 +516,18 @@ class RosMirror(Node):
             self._publish_cloud_twist(linear_x=0.0, linear_y=0.0, angular_z=0.0)
 
     def teleop_snapshot(self) -> dict[str, Any]:
+        if not self._teleop_enabled:
+            return {
+                "topic": self._teleop_topic,
+                "enabled": False,
+                "status": "disabled",
+                "controller_id": "",
+                "speed_level": 0,
+                "pressed_keys": [],
+                "twist": {"linear_x": 0.0, "linear_y": 0.0, "angular_z": 0.0},
+                "last_publish_at": "",
+                "subscriber_count": 0,
+            }
         with self._teleop_state_lock:
             current = dict(self._teleop_state)
         return {
@@ -922,6 +946,7 @@ def main() -> int:
     parser.add_argument("--command-interval", type=float, default=1.0, help="seconds between remote command polls")
     parser.add_argument("--teleop-interval", type=float, default=0.15, help="seconds between remote teleop polls")
     parser.add_argument("--teleop-topic", default="/cmd_vel_cmd", help="ROS topic used for cloud keyboard teleop")
+    parser.add_argument("--enable-teleop", action="store_true", help="enable legacy cloud keyboard teleop publisher")
     args = parser.parse_args()
 
     if rclpy is None:
@@ -936,7 +961,7 @@ def main() -> int:
     headers = {"X-Upload-Token": args.upload_token}
     ros_context = Context()
     rclpy.init(args=None, context=ros_context)
-    ros_node = RosMirror(context=ros_context, teleop_topic=args.teleop_topic)
+    ros_node = RosMirror(context=ros_context, teleop_topic=args.teleop_topic, enable_teleop=args.enable_teleop)
     ros_executor = SingleThreadedExecutor(context=ros_context)
     ros_executor.add_node(ros_node)
 
@@ -953,7 +978,7 @@ def main() -> int:
         while True:
             now = now_s()
             ros_executor.spin_once(timeout_sec=0.05)
-            if now - last_teleop_at >= max(0.05, float(args.teleop_interval)):
+            if args.enable_teleop and now - last_teleop_at >= max(0.05, float(args.teleop_interval)):
                 try:
                     teleop_payload = request_json(
                         session,

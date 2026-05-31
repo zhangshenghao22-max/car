@@ -843,6 +843,7 @@ function renderNavPoseSummary() {
 
 function renderCommandHistory() {
   const target = $("command-history");
+  const latestTarget = $("latest-command-summary");
   if (!target) return;
   const history = Array.isArray(state.payload?.commands?.history) ? state.payload.commands.history : [];
   const filtered = history.filter((item) => {
@@ -853,8 +854,17 @@ function renderCommandHistory() {
   }).slice(0, 6);
 
   if (!filtered.length) {
+    if (latestTarget) {
+      latestTarget.textContent = pageMode === "mapping" ? "等待建图指令" : "等待导航指令";
+    }
     target.textContent = "还没有指令记录";
     return;
+  }
+
+  if (latestTarget) {
+    const latest = filtered[0];
+    const message = fmtText(latest.result?.message || latest.status, "");
+    latestTarget.textContent = `${commandLabel(latest.action)}：${fmtText(latest.status)} ${message}`;
   }
 
   target.innerHTML = filtered.map((item) => {
@@ -974,120 +984,23 @@ function startTeleopHeartbeat() {
 }
 
 async function enableTeleop() {
-  if (pageMode !== "mapping") return;
-  if (!isFreshIso(state.payload?.board?.last_seen_at || "")) {
-    state.teleop.lastError = "板子当前离线，不能接管键盘";
-    renderTeleopPanel();
-    return;
-  }
-  state.teleop.enabled = true;
-  const ok = await postTeleopState({ enabled: true });
-  if (!ok) {
-    state.teleop.enabled = false;
-    stopTeleopHeartbeat();
-    return;
-  }
-  startTeleopHeartbeat();
-  renderTeleopPanel();
+  return false;
 }
 
 async function disableTeleop(message = "") {
-  if (pageMode !== "mapping") return;
-  const wasEnabled = state.teleop.enabled || state.teleop.pressedKeys.size > 0 || teleopOwnedByThisPage();
   state.teleop.enabled = false;
   state.teleop.pressedKeys.clear();
   stopTeleopHeartbeat();
-  if (wasEnabled) {
-    await postTeleopState({ enabled: false });
-  }
   if (message) {
     state.teleop.lastError = message;
   }
-  renderTeleopPanel();
+  return false;
 }
 
 function updateTeleopKeyCaps() {
-  const session = teleopSession();
-  const activeKeys = (teleopIsLive(session) && teleopOwnedByThisPage(session))
-    ? (Array.isArray(session.pressed_keys) ? session.pressed_keys : teleopPressedArray())
-    : (state.teleop.enabled ? teleopPressedArray() : []);
-  const keyMap = {
-    w: "teleop-key-w",
-    a: "teleop-key-a",
-    s: "teleop-key-s",
-    d: "teleop-key-d",
-    q: "teleop-key-q",
-    e: "teleop-key-e",
-    " ": "teleop-key-space",
-  };
-  Object.entries(keyMap).forEach(([key, id]) => {
-    const element = $(id);
-    if (!element) return;
-    element.classList.toggle("is-active", activeKeys.includes(key));
-  });
 }
 
 function renderTeleopPanel() {
-  if (pageMode !== "mapping") return;
-  const session = teleopSession();
-  const live = teleopIsLive(session);
-  const own = teleopOwnedByThisPage(session);
-  const status = $("teleop-status");
-  const summary = $("teleop-summary");
-  const speedLabel = $("teleop-speed-label");
-  const enableButton = $("teleop-enable");
-  const disableButton = $("teleop-disable");
-  const speedDown = $("teleop-speed-down");
-  const speedUp = $("teleop-speed-up");
-
-  if (live && own) {
-    state.teleop.enabled = true;
-    state.teleop.speedLevel = Number(session.speed_level || state.teleop.speedLevel || 2);
-    if (!state.teleop.heartbeatTimer) {
-      startTeleopHeartbeat();
-    }
-  } else if (live && !own) {
-    state.teleop.enabled = false;
-    state.teleop.pressedKeys.clear();
-    stopTeleopHeartbeat();
-  } else if (!live && state.teleop.enabled && state.teleop.pressedKeys.size === 0) {
-    state.teleop.enabled = false;
-    stopTeleopHeartbeat();
-  }
-
-  if (status) {
-    if (live && own) status.textContent = session.status === "driving" ? "控制中" : "已接管";
-    else if (live) status.textContent = "他人控制";
-    else status.textContent = "未接管";
-  }
-  if (speedLabel) {
-    speedLabel.textContent = `速度 ${state.teleop.speedLevel}`;
-  }
-  if (enableButton) {
-    enableButton.disabled = !isFreshIso(state.payload?.board?.last_seen_at || "") || (live && !own);
-  }
-  if (disableButton) {
-    disableButton.disabled = !(state.teleop.enabled || live);
-  }
-  if (speedDown) speedDown.disabled = state.teleop.speedLevel <= 1;
-  if (speedUp) speedUp.disabled = state.teleop.speedLevel >= 3;
-
-  if (summary) {
-    if (state.teleop.lastError) {
-      summary.textContent = state.teleop.lastError;
-    } else if (live && own) {
-      const pressed = Array.isArray(session.pressed_keys) && session.pressed_keys.length
-        ? `当前按键：${session.pressed_keys.map((key) => key === " " ? "空格" : key.toUpperCase()).join(" / ")}`
-        : "当前没有按键，松开后会保持静止";
-      summary.textContent = `${pressed}，页面失焦会自动退出控制。`;
-    } else if (live) {
-      summary.textContent = "当前建图页正在被另一处页面控制，先释放后才能接管。";
-    } else {
-      summary.textContent = "开始建图后，点击“接管键盘”，再用 W/S 前后、A/D 横移、Q/E 旋转。";
-    }
-  }
-
-  updateTeleopKeyCaps();
 }
 
 async function sendCommand(action, params = {}) {
@@ -1095,10 +1008,6 @@ async function sendCommand(action, params = {}) {
   if (!commandToken) {
     console.warn("command token missing");
     return;
-  }
-
-  if (["stop_mapping", "start_navigation", "stop_navigation"].includes(String(action || ""))) {
-    await disableTeleop("");
   }
 
   state.commandBusy = true;
@@ -1257,7 +1166,6 @@ function render() {
   renderCruiseSummary();
   updateNavClickButtons();
   renderCommandHistory();
-  renderTeleopPanel();
   renderOverlay();
   applyViewport();
 }
@@ -1459,69 +1367,7 @@ function bindCommandButtons() {
 }
 
 function bindTeleopControls() {
-  if (pageMode !== "mapping") return;
-  ensureTeleopControllerId();
-
-  $("teleop-enable")?.addEventListener("click", () => {
-    enableTeleop().catch(() => {});
-  });
-
-  $("teleop-disable")?.addEventListener("click", () => {
-    disableTeleop("").catch(() => {});
-  });
-
-  $("teleop-speed-down")?.addEventListener("click", () => {
-    state.teleop.speedLevel = Math.max(1, state.teleop.speedLevel - 1);
-    state.teleop.lastError = "";
-    renderTeleopPanel();
-    if (state.teleop.enabled) {
-      postTeleopState({ enabled: true }).catch(() => {});
-    }
-  });
-
-  $("teleop-speed-up")?.addEventListener("click", () => {
-    state.teleop.speedLevel = Math.min(3, state.teleop.speedLevel + 1);
-    state.teleop.lastError = "";
-    renderTeleopPanel();
-    if (state.teleop.enabled) {
-      postTeleopState({ enabled: true }).catch(() => {});
-    }
-  });
-
-  window.addEventListener("keydown", (event) => {
-    if (pageMode !== "mapping" || !state.teleop.enabled) return;
-    if (teleopEditableTarget(event.target)) return;
-    const key = teleopKeyFromEvent(event);
-    if (!key) return;
-    event.preventDefault();
-    if (state.teleop.pressedKeys.has(key)) return;
-    state.teleop.pressedKeys.add(key);
-    state.teleop.lastError = "";
-    renderTeleopPanel();
-    postTeleopState({ enabled: true }).catch(() => {});
-  });
-
-  window.addEventListener("keyup", (event) => {
-    if (pageMode !== "mapping" || !state.teleop.enabled) return;
-    const key = teleopKeyFromEvent(event);
-    if (!key) return;
-    event.preventDefault();
-    if (!state.teleop.pressedKeys.has(key)) return;
-    state.teleop.pressedKeys.delete(key);
-    renderTeleopPanel();
-    postTeleopState({ enabled: true }).catch(() => {});
-  });
-
-  window.addEventListener("blur", () => {
-    if (!state.teleop.enabled) return;
-    disableTeleop("").catch(() => {});
-  });
-
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden" && state.teleop.enabled) {
-      disableTeleop("").catch(() => {});
-    }
-  });
+  // Cloud keyboard driving is disabled. Mapping/navigation commands go through the command queue only.
 }
 
 function startPolling() {
