@@ -172,22 +172,22 @@ controller_server:
       # linear.x: +0.1 (forward) or -0.1 (backward) or 0.0 (stop)
       # linear.y: +0.1 (left) or -0.1 (right) or 0.0 (stop)
       # angular.z: +0.4 (turn left) or -0.4 (turn right) or 0.0 (stop)
-      min_vel_x: -0.3   # Maximum backward velocity (LIMITED to 0.3 m/s) - further reduced for stability
-      max_vel_x: 0.3    # Maximum forward velocity (LIMITED to 0.3 m/s) - further reduced for stability
+      min_vel_x: -0.15  # Maximum backward velocity, reduced for smoother navigation
+      max_vel_x: 0.20   # Maximum forward velocity, reduced for smoother navigation
       min_vel_y: 0.0   # Fixed right velocity (mecanum wheel, if needed change to -0.3)
       max_vel_y: 0.0    # Fixed left velocity (mecanum wheel, if needed change to 0.3)
-      min_vel_theta: -0.5  # Allow clockwise rotation (negative angular velocity, LIMITED to 0.5 rad/s)
-      max_vel_theta: 0.5   # Allow counter-clockwise rotation (positive angular velocity, LIMITED to 0.5 rad/s)
+      min_vel_theta: -0.35  # Reduced clockwise rotation speed for smoother turns
+      max_vel_theta: 0.35   # Reduced counter-clockwise rotation speed for smoother turns
       min_speed_xy: 0.0
-      max_speed_xy: 0.3  # Maximum combined linear speed (LIMITED to 0.3 m/s for stability) - reduced from 0.4
+      max_speed_xy: 0.20  # Maximum combined linear speed, reduced for smoother navigation
       min_speed_theta: 0.0
       # Acceleration limits: set to allow smooth transitions between fixed speeds
-      acc_lim_x: 0.5   # X direction acceleration limit (m/s²) - allow smooth transition to 0.1 m/s
+      acc_lim_x: 0.25  # X direction acceleration limit (m/s²), reduced for smoother starts
       acc_lim_y: 0.0   # Y direction acceleration limit (m/s²) - allow smooth transition to 0.1 m/s
-      acc_lim_theta: 0.9  # Angular acceleration limit (rad/s²) - allow smooth transition to 0.4 rad/s
-      decel_lim_x: -0.5   # X direction deceleration limit (m/s²)
+      acc_lim_theta: 0.45  # Angular acceleration limit (rad/s²), reduced for smoother turns
+      decel_lim_x: -0.25   # X direction deceleration limit (m/s²), reduced for smoother stops
       decel_lim_y: -0.0   # Y direction deceleration limit (m/s²)
-      decel_lim_theta: -0.9  # Angular deceleration limit (rad/s²)
+      decel_lim_theta: -0.45  # Angular deceleration limit (rad/s²), reduced for smoother stops
       # 🔧 VELOCITY SAMPLES: EXTREME reduction - LAST RESORT for weak hardware
       vx_samples: 3     # 🔧 EXTREME: From 5 to 3 - MINIMUM for functionality
       vy_samples: 1     # Minimal lateral sampling
@@ -199,7 +199,7 @@ controller_server:
       angular_granularity: 0.025
       transform_tolerance: 1.0  # Standardized tolerance
       xy_goal_tolerance: 0.25
-      trans_stopped_velocity: 0.05  # Reduced to 0.05 for better stop detection (must be > min_vel_x threshold)
+      trans_stopped_velocity: 0.03  # Lower stop threshold for reduced navigation speed
       short_circuit_trajectory_evaluation: True
       stateful: False  # Changed to False to prevent action server state issues between goals
       # 🔧 SIMPLIFIED CRITICS: Removed less important critics to reduce computation
@@ -360,4 +360,3 @@ waypoint_follower:
 waypoint_follower_rclcpp_node:
   ros__parameters:
     use_sim_time: False
-
