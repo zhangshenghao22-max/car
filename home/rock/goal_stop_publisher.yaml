@@ -1,0 +1,8 @@
+/goal_stop_publisher:
+  ros__parameters:
+    action_status_topic: /navigate_to_pose/_action/status
+    cmd_vel_topic: /cmd_vel
+    min_goal_duration: 2.0
+    stop_duration: 0.5
+    stop_repeats: 3
+    use_sim_time: false

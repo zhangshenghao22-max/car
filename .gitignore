@@ -1,0 +1,11 @@
+# 运行态与缓存
+__pycache__/
+*.pyc
+*.pyo
+*.log
+logs/
+runtime/
+*.pid
+*.tmp
+Thumbs.db
+.DS_Store

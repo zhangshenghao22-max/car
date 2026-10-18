@@ -1,0 +1,75 @@
+camera:
+  device: /dev/v4l/by-id/usb-icSpring_icspring_camera_240929142408-video-index0
+  backend: gstreamer
+  width: 1280
+  height: 720
+  fps: 15
+  rotate_180: true
+
+paths:
+  intrinsics: /home/rock/Desktop/car_cloud_uploader/vision_calibration/fixed_camera_intrinsics.yaml
+  intrinsics_sha256: B7B638C167B38E506247E1932A0E161FCD280BB1DA7F08EE6801FA9CFA25C835
+  handeye: /home/rock/Desktop/car_cloud_uploader/vision_calibration/handeye_result.yaml
+  runtime_dir: /run/user/1000/cabinet-camera
+
+apriltag:
+  dictionary: DICT_APRILTAG_36h11
+  tag_size_mm: 50.0
+  allowed_ids: [10, 11, 12, 13]
+  preferred_id: 10
+  cabinet_mount_rotation_deg: 90.0
+  min_side_px: 24.0
+  max_reprojection_error_px: 2.0
+  interval_s: 0.2
+
+yolo:
+  model: /home/rock/Desktop/car_cloud_uploader/yolo_models/rknn/switch_yolo_best.rknn
+  classes: [kai, guan]
+  imgsz: 640
+  confidence: 0.20
+  iou: 0.45
+  interval_s: 0.10
+
+arm:
+  state_timeout_s: 30.0
+  l0_mm: 100.0
+  l1_mm: 105.0
+  l2_mm: 88.0
+  tool_length_mm: 155.0
+  home_pwm: [1600, 1500, 1500, 1500, 1500, 1500]
+  direction: [-1, 1, 1, 1, 1, 1]
+  pwm_per_deg: [7.4074074, 7.4074074, 7.4074074, 7.4074074, 7.4074074, 7.4074074]
+
+sharing:
+  interval_s: 0.2
+  jpeg_quality: 92
+
+alignment:
+  speed_m_s: 0.04
+  lateral_sign: -1.0
+  pulse_s: 0.30
+  startup_timeout_s: 3.5
+  startup_feedback_mm_s: 2.0
+  startup_feedback_frames: 2
+  settle_s: 0.35
+  center_tolerance_px: 20.0
+  stable_frames: 3
+  centered_frames: 2
+  target_match_distance_px: 100.0
+  target_wait_timeout_s: 5.0
+  target_lost_timeout_s: 0.5
+  lease_timeout_s: 2.0
+  max_attempts: 10
+  divergence_px: 5.0
+  divergence_pulses: 2
+  f103_state_timeout_s: 1.0
+  motion_busy_timeout_s: 0.5
+
+ros:
+  f103_state_topic: /f103_state
+  vision_state_topic: /cabinet_vision/state
+  cabinet_cmd_topic: /cmd_vel_cabinet
+  cabinet_mode_service: /f103_usb_ros2_bridge/cabinet_mode
+  nav_status_topic: /navigate_to_pose/_action/status
+  nav_manager_status_topic: /maze_turn_manager/status
+  normal_cmd_topics: [/cmd_vel, /cmd_vel_cmd, /cmd_vel_mapping]

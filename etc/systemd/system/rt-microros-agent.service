@@ -1,0 +1,17 @@
+[Unit]
+Description=RT micro-ROS UDP agent for chassis
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rock
+WorkingDirectory=/home/rock
+ExecStart=/home/rock/Desktop/rt_autostart/start_rt_microros_agent.sh
+Restart=always
+RestartSec=3
+StandardOutput=append:/tmp/rt_microros_agent.log
+StandardError=append:/tmp/rt_microros_agent.log
+
+[Install]
+WantedBy=multi-user.target

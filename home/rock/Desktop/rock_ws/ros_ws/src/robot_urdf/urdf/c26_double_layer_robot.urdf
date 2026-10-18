@@ -1,0 +1,24 @@
+<?xml version="1.0" ?>
+<robot name="c26_double_layer_robot">
+
+    <material name="c26_body_gray">
+        <color rgba="0.72 0.72 0.70 1.0"/>
+    </material>
+
+    <link name="base_link">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://robot_urdf/meshes/c26/c26_double_layer.stl"/>
+            </geometry>
+            <material name="c26_body_gray"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0.0547" rpy="0 0 0"/>
+            <geometry>
+                <box size="0.280 0.258 0.110"/>
+            </geometry>
+        </collision>
+    </link>
+
+</robot>

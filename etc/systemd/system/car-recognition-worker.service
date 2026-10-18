@@ -1,0 +1,19 @@
+[Unit]
+Description=Persistent RKNN recognition worker
+After=network.target
+
+[Service]
+Type=simple
+User=rock
+WorkingDirectory=/home/rock/Desktop/car_cloud_uploader
+Environment=CAR_CLOUD_UPLOADER_ROOT=/home/rock/Desktop/car_cloud_uploader
+Environment=CAR_CLOUD_RECOGNITION_SOCKET=/home/rock/Desktop/car_cloud_uploader/runtime/recognition_worker/worker.sock
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/rock/Desktop/car_cloud_uploader/ros2_tools/recognition_worker.py
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

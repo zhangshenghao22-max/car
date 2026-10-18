@@ -1,0 +1,403 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-07-28T17:25:42.384744+00:00",
+  "base_model": "D:\\project\\car2.0\\yolo_models\\lightlabel_best.pt",
+  "base_model_sha256": "FDA96C367B0E60931D48AA54783265467D88D0C75C9E1151D28AB55BDE762F5A",
+  "trained_model": "D:\\project\\yolo\\local\\runs\\train_lightlabel_stronglight_20260729_1\\weights\\best.pt",
+  "trained_model_sha256": "25FBE3EAD5026ABFAABCE34A3AF036298546B619918DB804AEA97E62F662E60E",
+  "dataset": "D:\\project\\yolo\\local\\datasets\\lightlabel_incremental_20260729",
+  "training": {
+    "epochs": 60,
+    "patience": 15,
+    "imgsz": 640,
+    "batch": 8,
+    "workers": 2,
+    "device": "0",
+    "optimizer": "AdamW",
+    "lr0": 0.001,
+    "seed": 42
+  },
+  "baseline": {
+    "original_val": {
+      "precision": 0.9784069779680432,
+      "recall": 0.9978663804103775,
+      "map50": 0.995,
+      "map50_95": 0.8271112675933981,
+      "per_class": {
+        "green_off": {
+          "map50_95": 0.8063279523248215,
+          "map50": 0.995,
+          "precision": 0.9905323592342798,
+          "recall": 1.0
+        },
+        "green_on": {
+          "map50_95": 0.8400411327561328,
+          "map50": 0.995,
+          "precision": 1.0,
+          "recall": 0.9914655216415097
+        },
+        "red_off": {
+          "map50_95": 0.8568911261872456,
+          "map50": 0.995,
+          "precision": 0.9588979754343873,
+          "recall": 1.0
+        },
+        "red_on": {
+          "map50_95": 0.8051848591053927,
+          "map50": 0.995,
+          "precision": 0.9641975772035057,
+          "recall": 1.0
+        }
+      },
+      "speed_ms": {
+        "preprocess": 2.452107413706404,
+        "inference": 7.983074066470619,
+        "loss": 0.0014592703707792141,
+        "postprocess": 2.4508703672499568
+      },
+      "save_dir": "D:\\project\\yolo\\local\\runs\\train_lightlabel_stronglight_20260729_1_baseline\\original_val"
+    },
+    "original_test": {
+      "precision": 0.9834507142928169,
+      "recall": 0.985680844247339,
+      "map50": 0.995,
+      "map50_95": 0.8310584975403899,
+      "per_class": {
+        "green_off": {
+          "map50_95": 0.8415129087791737,
+          "map50": 0.995,
+          "precision": 1.0,
+          "recall": 0.9427233769893559
+        },
+        "green_on": {
+          "map50_95": 0.8046666666666666,
+          "map50": 0.995,
+          "precision": 0.9919666877056507,
+          "recall": 1.0
+        },
+        "red_off": {
+          "map50_95": 0.8405897435897435,
+          "map50": 0.995,
+          "precision": 0.9494487992385588,
+          "recall": 1.0
+        },
+        "red_on": {
+          "map50_95": 0.8374646711259753,
+          "map50": 0.995,
+          "precision": 0.9923873702270583,
+          "recall": 1.0
+        }
+      },
+      "speed_ms": {
+        "preprocess": 1.909057144075632,
+        "inference": 25.118635717912444,
+        "loss": 0.0011357312489833152,
+        "postprocess": 0.8434428600594401
+      },
+      "save_dir": "D:\\project\\yolo\\local\\runs\\train_lightlabel_stronglight_20260729_1_baseline\\original_test"
+    },
+    "stronglight_val": {
+      "precision": 0.421745464052666,
+      "recall": 0.54375,
+      "map50": 0.5416931764150785,
+      "map50_95": 0.3172976294008461,
+      "per_class": {
+        "green_off": {
+          "map50_95": 0.41338826052659944,
+          "map50": 0.6533333333333333,
+          "precision": 0.5434175282742569,
+          "recall": 1.0
+        },
+        "green_on": {
+          "map50_95": 0.09992844296914738,
+          "map50": 0.19902739726027396,
+          "precision": 0.08536474144431531,
+          "recall": 0.125
+        },
+        "red_off": {
+          "map50_95": 0.4894234636926586,
+          "map50": 0.7941234596605442,
+          "precision": 0.44809406950192116,
+          "recall": 1.0
+        },
+        "red_on": {
+          "map50_95": 0.26645035041497883,
+          "map50": 0.5202885154061624,
+          "precision": 0.6101055169901707,
+          "recall": 0.05
+        }
+      },
+      "speed_ms": {
+        "preprocess": 3.1393722294726305,
+        "inference": 17.458061105571687,
+        "loss": 0.0009722102226482498,
+        "postprocess": 0.7542166600210799
+      },
+      "save_dir": "D:\\project\\yolo\\local\\runs\\train_lightlabel_stronglight_20260729_1_baseline\\stronglight_val"
+    },
+    "stronglight_test": {
+      "precision": 0.5182035401229541,
+      "recall": 0.47145147470013155,
+      "map50": 0.6420420464085475,
+      "map50_95": 0.358923596918225,
+      "per_class": {
+        "green_off": {
+          "map50_95": 0.3916976298674054,
+          "map50": 0.6706944444444445,
+          "precision": 0.507062393575917,
+          "recall": 0.8233058988005262
+        },
+        "green_on": {
+          "map50_95": 0.11078961986427749,
+          "map50": 0.23761194029850738,
+          "precision": 0.03534836073827548,
+          "recall": 0.0625
+        },
+        "red_off": {
+          "map50_95": 0.5189309814647295,
+          "map50": 0.8696753246753247,
+          "precision": 0.5304034061776242,
+          "recall": 1.0
+        },
+        "red_on": {
+          "map50_95": 0.4142761564764875,
+          "map50": 0.7901864762159133,
+          "precision": 1.0,
+          "recall": 0.0
+        }
+      },
+      "speed_ms": {
+        "preprocess": 1.7618999894087513,
+        "inference": 11.28466666624364,
+        "loss": 0.022416662735243637,
+        "postprocess": 2.7225944601620236
+      },
+      "save_dir": "D:\\project\\yolo\\local\\runs\\train_lightlabel_stronglight_20260729_1_baseline\\stronglight_test"
+    }
+  },
+  "candidate": {
+    "original_val": {
+      "precision": 0.9855445283181741,
+      "recall": 0.9892362939211421,
+      "map50": 0.9945833333333334,
+      "map50_95": 0.8111594741298941,
+      "per_class": {
+        "green_off": {
+          "map50_95": 0.8055418338106979,
+          "map50": 0.995,
+          "precision": 1.0,
+          "recall": 0.9764490231874751
+        },
+        "green_on": {
+          "map50_95": 0.8367777177234531,
+          "map50": 0.995,
+          "precision": 0.9852572107721076,
+          "recall": 1.0
+        },
+        "red_off": {
+          "map50_95": 0.8231677321156774,
+          "map50": 0.995,
+          "precision": 0.98119480363161,
+          "recall": 1.0
+        },
+        "red_on": {
+          "map50_95": 0.7791506128697484,
+          "map50": 0.9933333333333334,
+          "precision": 0.9757260988689784,
+          "recall": 0.9804961524970931
+        }
+      },
+      "speed_ms": {
+        "preprocess": 2.7943259294800185,
+        "inference": 12.118377783163279,
+        "loss": 0.0017333292850741633,
+        "postprocess": 5.676637032862614
+      },
+      "save_dir": "D:\\project\\yolo\\local\\runs\\train_lightlabel_stronglight_20260729_1_candidate_eval\\original_val"
+    },
+    "original_test": {
+      "precision": 0.9915104861479381,
+      "recall": 0.9779217179403328,
+      "map50": 0.9945833333333334,
+      "map50_95": 0.8449631710886016,
+      "per_class": {
+        "green_off": {
+          "map50_95": 0.8455875005472224,
+          "map50": 0.995,
+          "precision": 1.0,
+          "recall": 0.9638659560144597
+        },
+        "green_on": {
+          "map50_95": 0.7989375,
+          "map50": 0.995,
+          "precision": 0.9746392754426139,
+          "recall": 1.0
+        },
+        "red_off": {
+          "map50_95": 0.8955,
+          "map50": 0.995,
+          "precision": 0.9914026691491385,
+          "recall": 1.0
+        },
+        "red_on": {
+          "map50_95": 0.8398276838071839,
+          "map50": 0.9933333333333334,
+          "precision": 1.0,
+          "recall": 0.9478209157468716
+        }
+      },
+      "speed_ms": {
+        "preprocess": 3.395271437641765,
+        "inference": 19.202571428780043,
+        "loss": 0.0015571214524762972,
+        "postprocess": 5.073314283176193
+      },
+      "save_dir": "D:\\project\\yolo\\local\\runs\\train_lightlabel_stronglight_20260729_1_candidate_eval\\original_test"
+    },
+    "stronglight_val": {
+      "precision": 0.9897692855187168,
+      "recall": 1.0,
+      "map50": 0.995,
+      "map50_95": 0.8888412268400832,
+      "per_class": {
+        "green_off": {
+          "map50_95": 0.8849647435897436,
+          "map50": 0.995,
+          "precision": 0.9913940484471254,
+          "recall": 1.0
+        },
+        "green_on": {
+          "map50_95": 0.9183611280487805,
+          "map50": 0.995,
+          "precision": 0.9851147909800636,
+          "recall": 1.0
+        },
+        "red_off": {
+          "map50_95": 0.8646910624438455,
+          "map50": 0.995,
+          "precision": 0.9854738667789207,
+          "recall": 1.0
+        },
+        "red_on": {
+          "map50_95": 0.8873479732779634,
+          "map50": 0.995,
+          "precision": 0.9970944358687576,
+          "recall": 1.0
+        }
+      },
+      "speed_ms": {
+        "preprocess": 1.131755545631879,
+        "inference": 4.0212111133668165,
+        "loss": 0.019888898047308128,
+        "postprocess": 6.05872777911524
+      },
+      "save_dir": "D:\\project\\yolo\\local\\runs\\train_lightlabel_stronglight_20260729_1_candidate_eval\\stronglight_val"
+    },
+    "stronglight_test": {
+      "precision": 0.9889227569069805,
+      "recall": 0.9976923841549461,
+      "map50": 0.995,
+      "map50_95": 0.8920125549986212,
+      "per_class": {
+        "green_off": {
+          "map50_95": 0.8747301282051282,
+          "map50": 0.995,
+          "precision": 1.0,
+          "recall": 0.9907695366197842
+        },
+        "green_on": {
+          "map50_95": 0.921379985632184,
+          "map50": 0.995,
+          "precision": 0.9821142125084388,
+          "recall": 1.0
+        },
+        "red_off": {
+          "map50_95": 0.9040654411764704,
+          "map50": 0.995,
+          "precision": 0.9838878824883823,
+          "recall": 1.0
+        },
+        "red_on": {
+          "map50_95": 0.8678746649807021,
+          "map50": 0.995,
+          "precision": 0.9896889326311008,
+          "recall": 1.0
+        }
+      },
+      "speed_ms": {
+        "preprocess": 2.422533334336347,
+        "inference": 13.957238885470561,
+        "loss": 0.001372239138517115,
+        "postprocess": 1.0056999874197776
+      },
+      "save_dir": "D:\\project\\yolo\\local\\runs\\train_lightlabel_stronglight_20260729_1_candidate_eval\\stronglight_test"
+    }
+  },
+  "selection": {
+    "stronglight_pass": true,
+    "stronglight_baseline_map50_95": 0.358923596918225,
+    "stronglight_candidate_map50_95": 0.8920125549986212,
+    "old_map_pass": true,
+    "old_map50_95_regression": -0.013904673548211788,
+    "old_per_class_map50_pass": true,
+    "old_per_class_map50_regression": {
+      "green_off": 0.0,
+      "green_on": 0.0,
+      "red_off": 0.0,
+      "red_on": 0.0016666666666665941
+    },
+    "metrics_gate_passed": true,
+    "approved_for_rknn_export": true
+  },
+  "onnx": {
+    "path": "D:\\project\\car2.0\\yolo_models\\candidates\\lightlabel_stronglight_20260729\\lightlabel_best.onnx",
+    "sha256": "0936DBBE4EA2849C15C17F5837858CB3253CB2854F86D3C756901A43B0DA4486",
+    "contract": {
+      "inputs": [
+        {
+          "name": "images",
+          "shape": [
+            1,
+            3,
+            640,
+            640
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output0",
+          "shape": [
+            1,
+            8,
+            8400
+          ]
+        }
+      ],
+      "opsets": [
+        {
+          "domain": "",
+          "version": 9
+        }
+      ],
+      "names": {
+        "0": "green_off",
+        "1": "green_on",
+        "2": "red_off",
+        "3": "red_on"
+      }
+    },
+    "parity": {
+      "images": 18,
+      "pt_detections": 72,
+      "onnx_detections": 72,
+      "matched_detections": 72,
+      "detection_agreement": 1.0,
+      "mean_iou": 0.9600985612756284,
+      "min_iou": 0.9172632706257241,
+      "max_confidence_difference": 0.14061588048934937,
+      "class_mismatches": 0
+    },
+    "parity_passed": true
+  }
+}

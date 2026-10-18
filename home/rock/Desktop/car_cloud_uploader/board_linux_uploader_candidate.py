@@ -1,0 +1,4253 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import ast
+import concurrent.futures
+import contextlib
+from datetime import datetime
+import io
+import json
+import math
+import os
+from pathlib import Path as FilePath
+import re
+import signal
+import struct
+import subprocess
+import threading
+import time
+from collections import deque
+from typing import Any
+
+import requests
+import yaml
+
+try:
+    import serial
+except Exception:
+    serial = None
+
+try:
+    from PIL import Image, ImageDraw
+except Exception:
+    Image = None
+    ImageDraw = None
+
+try:
+    import rclpy
+    from action_msgs.msg import GoalStatusArray
+    from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
+    from nav_msgs.msg import OccupancyGrid, Odometry, Path
+    from rclpy.context import Context
+    from rclpy.executors import SingleThreadedExecutor
+    from rclpy.node import Node
+    from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+    from sensor_msgs.msg import LaserScan
+    from std_msgs.msg import String
+    import tf2_ros
+except Exception:
+    rclpy = None
+    GoalStatusArray = None
+    PoseStamped = None
+    PoseWithCovarianceStamped = None
+    Twist = None
+    OccupancyGrid = None
+    Odometry = None
+    Path = None
+    Context = None
+    SingleThreadedExecutor = None
+    Node = object
+    LaserScan = None
+    String = None
+    DurabilityPolicy = None
+    HistoryPolicy = None
+    QoSProfile = None
+    ReliabilityPolicy = None
+    qos_profile_sensor_data = None
+    tf2_ros = None
+
+try:
+    from .teleop_shared import empty_teleop_state, sanitize_teleop_state
+except Exception:
+    from teleop_shared import empty_teleop_state, sanitize_teleop_state
+
+
+def now_s() -> float:
+    return time.time()
+
+
+def iso_timestamp(value: Any) -> float:
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
+ROOT_DIR = FilePath(__file__).resolve().parent
+MAP_DIR = ROOT_DIR / "lidar_maps"
+MAP_METADATA_BACKUP_DIR = ROOT_DIR / "runtime" / "map_metadata_backups"
+NAV_COMMAND_STATUS_PATH = ROOT_DIR / "runtime" / "cloud_nav_command" / "status.json"
+NAV_COMMAND_PID_PATH = ROOT_DIR / "runtime" / "cloud_nav_command" / "cruise.pid"
+NAVIGATION_STACK_PID_PATH = ROOT_DIR / "runtime" / "cloud_navigation" / "navigation.pid"
+NAVIGATION_STACK_READY_PATH = ROOT_DIR / "runtime" / "cloud_navigation" / "navigation.ready"
+CABINET_TAKEOVER_STATUS_PATH = ROOT_DIR / "runtime" / "cabinet_nav_takeover" / "status.json"
+CABINET_TAKEOVER_LOG_DIR = ROOT_DIR / "runtime" / "cabinet_nav_takeover" / "logs"
+CABINET_TAKEOVER_OUTBOX_DIR = ROOT_DIR / "runtime" / "cabinet_nav_takeover" / "outbox"
+CABINET_INSPECTION_JOB_SCRIPT = ROOT_DIR / "cabinet_inspection_job.py"
+VISION_STREAM_CONTROL_URL = os.environ.get("CAR_VISION_STREAM_CONTROL_URL", "http://127.0.0.1:8767").rstrip("/")
+VISION_STREAM_STATUS_URL = os.environ.get("CAR_VISION_STREAM_STATUS_URL", "http://192.168.1.1:8766/status")
+MAPPING_PID_FILE = ROOT_DIR / "runtime" / "cloud_mapping" / "mapping.pid"
+MAPPING_SESSION_FILE = ROOT_DIR / "runtime" / "cloud_mapping" / "session.json"
+COMMAND_AUDIT_LOG = ROOT_DIR / "runtime" / "board_uploader" / "command_audit.log"
+MAPPING_NODE_NAMES = {
+    "/frontier_explorer",
+    "/slam_toolbox",
+    "/slam_gmapping",
+    "/async_slam_toolbox_node",
+    "/sync_slam_toolbox_node",
+}
+CABINET_TAKEOVER_ACTIVE_STATES = {
+    "CONFIRM_TARGET",
+    "LOCK_CHASSIS",
+    "CANCEL_NAV",
+    "DOCK",
+    "DOCK_FAILED_SCAN_FALLBACK",
+    "ARM_SCAN_METERS",
+    "ARM_SCAN_INDICATOR_DIGIT",
+    "ARM_SCAN_STATUS_LIGHTS",
+    "VERIFY",
+    "UPLOAD",
+    "target_confirmed",
+    "takeover_active",
+    "visual_approach",
+    "arrived",
+    "view_refine",
+    "capture_best_frames",
+    "upload_results",
+}
+CABINET_TAKEOVER_TERMINAL_STATES = {
+    "COMPLETE",
+    "PARTIAL",
+    "FAILED",
+    "completed",
+    "failed",
+    "stopped",
+    "idle_no_target",
+    "idle_no_active_goal",
+}
+
+
+def command_watchdog_timeout_s(action: Any) -> float:
+    clean_action = str(action or "").strip()
+    if clean_action == "start_mapping":
+        return 110.0
+    if clean_action in {"stop_mapping", "stop_navigation"}:
+        return 140.0
+    if clean_action == "save_map":
+        return 240.0
+    if clean_action in {"start_navigation", "start_navigation_route"}:
+        return 330.0
+    if clean_action in {"set_initial_pose", "save_map_initial_pose", "update_navigation_goal", "start_cruise", "stop_cruise"}:
+        return 90.0
+    if clean_action == "capture_recognition":
+        return 900.0
+    if clean_action == "cabinet_inspection":
+        return 1800.0
+    if clean_action == "start_cabinet_inspection":
+        return 90.0
+    if clean_action in {"start_live_preview", "stop_live_preview"}:
+        return 20.0
+    return 300.0
+
+
+def pid_file_process_live(pid_file: FilePath) -> bool:
+    try:
+        text = pid_file.read_text(encoding="utf-8").strip()
+        pid = int(text)
+    except Exception:
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def navigation_stack_process_info() -> dict[str, Any]:
+    candidate_pids: list[int] = []
+    try:
+        candidate_pids.append(int(NAVIGATION_STACK_PID_PATH.read_text(encoding="utf-8").strip()))
+    except Exception:
+        pass
+    try:
+        candidate_pids.extend(
+            int(path.parent.name)
+            for path in FilePath("/proc").glob("[0-9]*/cmdline")
+            if int(path.parent.name) not in candidate_pids
+        )
+    except Exception:
+        pass
+
+    for pid in candidate_pids:
+        try:
+            raw_cmdline = FilePath(f"/proc/{pid}/cmdline").read_bytes()
+        except Exception:
+            continue
+        cmdline = raw_cmdline.replace(b"\x00", b" ").decode("utf-8", errors="replace").strip()
+        if "rt_robot_nav2_complete.launch.py" not in cmdline or "use_nav:=true" not in cmdline:
+            continue
+        match = re.search(r"(?:^|\s)map_file:=(?:\"([^\"]+)\"|'([^']+)'|(\S+))", cmdline)
+        map_file = next((value for value in match.groups() if value), "") if match else ""
+        return {
+            "pid": pid,
+            "cmdline": cmdline,
+            "map_file": map_file,
+            "map_name": FilePath(map_file).stem if map_file else "",
+        }
+    return {}
+
+
+def wait_for_navigation_stack_ready(
+    stack_info: dict[str, Any],
+    timeout_s: float = 65.0,
+) -> tuple[bool, str]:
+    try:
+        expected_pid = int(stack_info.get("pid", 0) or 0)
+    except Exception:
+        expected_pid = 0
+    if expected_pid <= 0:
+        return False, "navigation stack pid is unavailable"
+
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    while time.monotonic() <= deadline:
+        try:
+            os.kill(expected_pid, 0)
+        except OSError:
+            return False, f"navigation stack exited before ready: pid={expected_pid}"
+        try:
+            ready_pid = int(NAVIGATION_STACK_READY_PATH.read_text(encoding="utf-8").strip())
+        except Exception:
+            ready_pid = 0
+        if ready_pid == expected_pid:
+            return True, ""
+        time.sleep(0.25)
+    return False, f"navigation stack readiness timed out: pid={expected_pid}"
+
+
+def read_pid_file(pid_file: FilePath) -> int:
+    try:
+        pid = int(pid_file.read_text(encoding="utf-8").strip())
+    except Exception:
+        return 0
+    return pid if pid > 0 else 0
+
+
+def process_name_live(patterns: tuple[str, ...]) -> bool:
+    for pattern in patterns:
+        try:
+            completed = subprocess.run(
+                ["pgrep", "-f", pattern],
+                capture_output=True,
+                text=True,
+                timeout=1.0,
+                check=False,
+            )
+        except Exception:
+            continue
+        if completed.returncode == 0 and completed.stdout.strip():
+            return True
+    return False
+
+
+def command_diagnostics() -> dict[str, Any]:
+    def run_text(cmd: list[str], *, timeout_s: float = 2.0, limit: int = 2000) -> str:
+        try:
+            completed = subprocess.run(
+                cmd,
+                cwd=str(ROOT_DIR),
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                check=False,
+            )
+        except Exception as exc:
+            return f"{type(exc).__name__}: {exc}"
+        text = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
+        return clip_text(text.strip(), limit=limit)
+
+    def file_tail(path: FilePath, *, limit: int = 2500) -> str:
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except Exception as exc:
+            return f"{type(exc).__name__}: {exc}"
+        return clip_text(text, limit=limit)
+
+    return {
+        "ros_nodes": run_text(["bash", "-lc", "source /opt/ros/foxy/setup.bash >/dev/null 2>&1; ros2 node list"], timeout_s=4.0),
+        "ros_topics": run_text(["bash", "-lc", "source /opt/ros/foxy/setup.bash >/dev/null 2>&1; ros2 topic list"], timeout_s=4.0),
+        "mapping_processes": run_text([
+            "pgrep",
+            "-af",
+            "start_board_f103_mapping|save_ros2_map|rt_robot_nav2_complete|slam_toolbox|frontier_explorer|rplidar_node|static_transform_publisher",
+        ]),
+        "mapping_log_tail": file_tail(ROOT_DIR / "runtime" / "cloud_mapping" / "logs" / "mapping.log"),
+    }
+
+
+def append_command_audit(
+    *,
+    command: dict[str, Any],
+    status: str,
+    cmd: list[str] | None = None,
+    returncode: int | None = None,
+    stdout: str = "",
+    stderr: str = "",
+    message: str = "",
+) -> None:
+    action = str(command.get("action") or "").strip()
+    if action not in {"start_mapping", "stop_mapping", "start_navigation", "start_navigation_route", "update_navigation_goal", "stop_navigation", "stop_cruise"}:
+        return
+    payload = {
+        "captured_at": iso_from_timestamp(now_s()),
+        "command_id": str(command.get("id") or ""),
+        "action": action,
+        "status": status,
+        "cmd": cmd or [],
+        "returncode": returncode,
+        "message": message,
+        "stdout": clip_text(stdout or "", limit=1000),
+        "stderr": clip_text(stderr or "", limit=1000),
+    }
+    try:
+        COMMAND_AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with COMMAND_AUDIT_LOG.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+    except Exception:
+        pass
+
+
+def bool_from_env(value: str | None, default: bool = False) -> bool:
+    if value is None or str(value).strip() == "":
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on", "enable", "enabled"}
+
+
+def quaternion_to_yaw(x: float, y: float, z: float, w: float) -> float:
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    return math.atan2(siny_cosp, cosy_cosp)
+
+
+def iso_from_timestamp(value: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(value))
+
+
+def read_pgm_size(image_path: FilePath) -> tuple[int, int] | None:
+    if not image_path.exists():
+        return None
+    try:
+        data = image_path.read_bytes()[:4096]
+    except Exception:
+        return None
+
+    tokens: list[bytes] = []
+    index = 0
+    length = len(data)
+    while index < length and len(tokens) < 4:
+        while index < length and data[index] in b" \t\r\n":
+            index += 1
+        if index >= length:
+            break
+        if data[index] == ord("#"):
+            while index < length and data[index] not in b"\r\n":
+                index += 1
+            continue
+        start = index
+        while index < length and data[index] not in b" \t\r\n":
+            index += 1
+        tokens.append(data[start:index])
+
+    if len(tokens) < 3 or tokens[0] not in {b"P2", b"P5"}:
+        return None
+    try:
+        width = int(tokens[1])
+        height = int(tokens[2])
+    except Exception:
+        return None
+    if width > 0 and height > 0:
+        return width, height
+    return None
+
+
+def read_png_size(image_path: FilePath) -> tuple[int, int] | None:
+    if not image_path.exists():
+        return None
+    try:
+        with image_path.open("rb") as handle:
+            header = handle.read(24)
+    except Exception:
+        return None
+    if len(header) < 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+        return None
+    try:
+        width, height = struct.unpack(">II", header[16:24])
+    except Exception:
+        return None
+    if width > 0 and height > 0:
+        return int(width), int(height)
+    return None
+
+
+def read_image_size(image_path: FilePath) -> tuple[int, int] | None:
+    if not image_path.exists():
+        return None
+    if Image is not None:
+        try:
+            with Image.open(image_path) as image:
+                width, height = image.size
+            if int(width) > 0 and int(height) > 0:
+                return int(width), int(height)
+        except Exception:
+            pass
+
+    suffix = image_path.suffix.lower()
+    if suffix == ".pgm":
+        return read_pgm_size(image_path)
+    if suffix == ".png":
+        return read_png_size(image_path)
+    pgm_size = read_pgm_size(image_path)
+    if pgm_size is not None:
+        return pgm_size
+    return read_png_size(image_path)
+
+
+def set_origin_meta(meta: dict[str, Any], values: list[Any]) -> None:
+    if len(values) < 2:
+        return
+    try:
+        meta["origin_x"] = float(values[0])
+        meta["origin_y"] = float(values[1])
+    except Exception:
+        pass
+
+
+def clean_yaml_scalar(value: str) -> str:
+    clean = str(value or "").strip()
+    if not clean:
+        return ""
+    if "#" in clean:
+        clean = clean.split("#", 1)[0].strip()
+    if len(clean) >= 2 and clean[0] in {"'", '"'} and clean[-1] == clean[0]:
+        clean = clean[1:-1]
+    return clean
+
+
+def resolve_yaml_image_path(yaml_path: FilePath, image_value: str, fallback: FilePath | None) -> FilePath | None:
+    clean = clean_yaml_scalar(image_value)
+    if clean:
+        candidate = FilePath(clean)
+        if not candidate.is_absolute():
+            candidate = yaml_path.parent / candidate
+        if candidate.exists():
+            return candidate
+    return fallback
+
+
+def parse_saved_map_meta(yaml_path: FilePath, image_path: FilePath | None) -> dict[str, Any]:
+    meta: dict[str, Any] = {}
+    yaml_image_value = ""
+    origin_multiline_values: list[float] | None = None
+    try:
+        text = yaml_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        try:
+            text = yaml_path.read_text(encoding="utf-8-sig")
+        except Exception:
+            return meta
+    except Exception:
+        return meta
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if origin_multiline_values is not None:
+            if line.startswith("-"):
+                try:
+                    origin_multiline_values.append(float(clean_yaml_scalar(line[1:])))
+                except Exception:
+                    pass
+                if len(origin_multiline_values) >= 2:
+                    set_origin_meta(meta, origin_multiline_values)
+                continue
+            origin_multiline_values = None
+
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        key, raw_value = line.split(":", 1)
+        key = key.strip()
+        value = clean_yaml_scalar(raw_value)
+        if key == "resolution":
+            try:
+                meta["resolution"] = float(value)
+            except Exception:
+                pass
+        elif key == "image":
+            yaml_image_value = value
+        elif key == "origin":
+            if value:
+                try:
+                    origin = ast.literal_eval(value)
+                except Exception:
+                    origin = None
+                if isinstance(origin, (list, tuple)):
+                    set_origin_meta(meta, list(origin))
+            else:
+                origin_multiline_values = []
+
+    if origin_multiline_values:
+        set_origin_meta(meta, origin_multiline_values)
+    image_path = resolve_yaml_image_path(yaml_path, yaml_image_value, image_path)
+    if image_path is not None:
+        image_size = read_image_size(image_path)
+        if image_size is not None:
+            meta["width"], meta["height"] = image_size
+
+    required_keys = {"width", "height", "resolution", "origin_x", "origin_y"}
+    if not required_keys.issubset(meta):
+        return {}
+    return meta
+
+
+def clean_map_stem(map_name: Any) -> str:
+    raw = str(map_name or "").strip().replace("\\", "/")
+    name = FilePath(raw).name
+    if name.lower().endswith(".yaml"):
+        name = name[:-5]
+    if not name or name in {".", ".."}:
+        raise RuntimeError("invalid map name")
+    return name
+
+
+def optional_clean_map_stem(map_name: Any) -> str:
+    return clean_map_stem(map_name) if str(map_name or "").strip() else ""
+
+
+def resolve_saved_map_yaml(map_name: Any) -> FilePath:
+    stem = clean_map_stem(map_name)
+    yaml_path = MAP_DIR / f"{stem}.yaml"
+    if not yaml_path.exists():
+        raise RuntimeError(f"saved map not found: {stem}")
+    return yaml_path
+
+
+def nav_points_path_for_yaml(yaml_path: FilePath) -> FilePath:
+    return yaml_path.with_suffix(".points.json")
+
+
+def normalize_nav_pose(raw: Any, fallback_label: str = "") -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise RuntimeError("pose must be an object")
+    try:
+        x = float(raw["x"])
+        y = float(raw["y"])
+        if "yaw_deg" in raw:
+            yaw = math.radians(float(raw.get("yaw_deg", 0.0)))
+        else:
+            yaw = float(raw.get("yaw", 0.0))
+            if abs(yaw) > math.tau + 1e-6:
+                yaw = math.radians(yaw)
+        yaw = math.atan2(math.sin(yaw), math.cos(yaw))
+    except Exception as exc:
+        raise RuntimeError(f"invalid pose: {exc}") from exc
+    pose: dict[str, Any] = {"x": x, "y": y, "yaw": yaw}
+    label = str(raw.get("label") or fallback_label or "").strip()
+    if label:
+        pose["label"] = label
+    kind = str(raw.get("kind") or "transit").strip().lower()
+    if kind not in {"transit", "cabinet"}:
+        raise RuntimeError(f"invalid navigation point kind: {kind}")
+    pose["kind"] = kind
+    if kind == "cabinet":
+        try:
+            apriltag_id = int(raw.get("apriltag_id"))
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("cabinet point requires apriltag_id") from exc
+        if apriltag_id not in {10, 11, 12, 13}:
+            raise RuntimeError("cabinet apriltag_id must be 10-13")
+        pose["apriltag_id"] = apriltag_id
+    return pose
+
+
+def read_map_initial_pose(yaml_path: FilePath) -> dict[str, Any]:
+    try:
+        payload = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    for key in ("rt_robot_initial_pose", "initial_pose"):
+        value = payload.get(key)
+        if not isinstance(value, dict):
+            continue
+        try:
+            return normalize_nav_pose(value, "M")
+        except Exception:
+            continue
+    return {}
+
+
+def resolve_route_start_context(
+    start_pose: dict[str, Any],
+    *,
+    inspection_route: bool,
+    stack_was_live: bool,
+    map_initial_pose: dict[str, Any],
+    requested_start_source: str,
+    route_source: str,
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    localization_initial_pose: dict[str, Any] = {}
+    if start_pose:
+        start_source = (
+            requested_start_source
+            if requested_start_source in {"temporary", "saved_route"}
+            else "temporary"
+            if route_source == "temporary"
+            else "saved_route"
+        )
+    elif inspection_route:
+        start_source = "current_pose"
+        if not stack_was_live and map_initial_pose:
+            localization_initial_pose = dict(map_initial_pose)
+    elif not stack_was_live:
+        start_pose = dict(map_initial_pose)
+        start_source = "map_default" if start_pose else "current_pose"
+    else:
+        start_source = "current_pose"
+    return start_pose, start_source, localization_initial_pose
+
+
+def saved_map_pose_in_bounds(yaml_path: FilePath, pose: dict[str, Any]) -> bool:
+    pgm_path = yaml_path.with_suffix(".pgm")
+    png_path = yaml_path.with_suffix(".png")
+    image_path = pgm_path if pgm_path.exists() else png_path if png_path.exists() else None
+    meta = parse_saved_map_meta(yaml_path, image_path)
+    if not meta:
+        return False
+    x = float(pose["x"])
+    y = float(pose["y"])
+    min_x = float(meta["origin_x"])
+    min_y = float(meta["origin_y"])
+    max_x = min_x + float(meta["width"]) * float(meta["resolution"])
+    max_y = min_y + float(meta["height"]) * float(meta["resolution"])
+    return min_x <= x <= max_x and min_y <= y <= max_y
+
+
+def save_map_initial_pose(map_name: Any, raw_pose: Any) -> dict[str, Any]:
+    yaml_path = resolve_saved_map_yaml(map_name)
+    pose = normalize_nav_pose(raw_pose, "M")
+    if not saved_map_pose_in_bounds(yaml_path, pose):
+        raise RuntimeError("map initial pose is outside the saved map bounds")
+
+    raw_text = yaml_path.read_text(encoding="utf-8")
+    payload = yaml.safe_load(raw_text) or {}
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"invalid map yaml: {yaml_path.name}")
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+    MAP_METADATA_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    backup_path = MAP_METADATA_BACKUP_DIR / f"{yaml_path.stem}_{timestamp}.yaml"
+    backup_path.write_text(raw_text, encoding="utf-8")
+
+    normalized = {"x": float(pose["x"]), "y": float(pose["y"]), "yaw": float(pose["yaw"])}
+    payload["rt_robot_initial_pose"] = dict(normalized)
+    payload["initial_pose"] = {**normalized, "z": 0.0}
+    tmp_path = yaml_path.with_suffix(yaml_path.suffix + ".tmp")
+    tmp_path.write_text(
+        yaml.safe_dump(payload, allow_unicode=True, sort_keys=False, default_flow_style=False),
+        encoding="utf-8",
+    )
+    os.chmod(tmp_path, yaml_path.stat().st_mode & 0o777)
+    tmp_path.replace(yaml_path)
+    return {
+        "schema_version": 2,
+        "map": yaml_path.stem,
+        "yaml": yaml_path.name,
+        "initial_pose": normalized,
+        "backup_path": str(backup_path),
+    }
+
+
+def normalize_nav_points_payload(raw: Any, *, yaml_path: FilePath) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise RuntimeError("nav points payload must be an object")
+    start_raw = raw.get("start_pose") or raw.get("start") or raw.get("pose")
+    if not isinstance(start_raw, dict):
+        raise RuntimeError("start pose must be an object")
+    raw_points = raw.get("points") or raw.get("patrol_points") or []
+    if not isinstance(raw_points, list) or not raw_points:
+        raise RuntimeError("at least one navigation point is required")
+    return {
+        "map": yaml_path.stem,
+        "yaml": yaml_path.name,
+        "start_pose": normalize_nav_pose(start_raw, "S"),
+        "points": [normalize_nav_pose(item, f"P{index}") for index, item in enumerate(raw_points, 1)],
+        "updated_at": iso_from_timestamp(time.time()),
+    }
+
+
+def read_nav_points_for_yaml(yaml_path: FilePath) -> dict[str, Any]:
+    path = nav_points_path_for_yaml(yaml_path)
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        payload = normalize_nav_points_payload(raw, yaml_path=yaml_path)
+        payload["schema_version"] = 2
+        payload["updated_at"] = str(raw.get("updated_at") or iso_from_timestamp(path.stat().st_mtime))
+        return payload
+    except Exception as exc:
+        return {"map": yaml_path.stem, "yaml": yaml_path.name, "start_pose": {}, "points": [], "error": str(exc)}
+
+
+def save_nav_points_file(map_name: Any, start_pose: Any, points: Any) -> dict[str, Any]:
+    yaml_path = resolve_saved_map_yaml(map_name)
+    payload = normalize_nav_points_payload({"start_pose": start_pose, "points": points}, yaml_path=yaml_path)
+    path = nav_points_path_for_yaml(yaml_path)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+    payload["path"] = str(path)
+    return payload
+
+
+def load_required_nav_points(map_name: Any) -> dict[str, Any]:
+    yaml_path = resolve_saved_map_yaml(map_name)
+    payload = read_nav_points_for_yaml(yaml_path)
+    if not payload.get("start_pose") or not payload.get("points"):
+        raise RuntimeError(f"navigation points not saved for map: {yaml_path.stem}")
+    if payload.get("error"):
+        raise RuntimeError(f"navigation points invalid for map {yaml_path.stem}: {payload['error']}")
+    return payload
+
+
+def list_saved_maps(map_dir: FilePath) -> list[dict[str, Any]]:
+    if not map_dir.exists():
+        return []
+
+    items: list[dict[str, Any]] = []
+    for yaml_path in sorted(map_dir.glob("*.yaml")):
+        stem = yaml_path.stem
+        pgm_path = yaml_path.with_suffix(".pgm")
+        png_path = yaml_path.with_suffix(".png")
+        image_path = pgm_path if pgm_path.exists() else png_path if png_path.exists() else None
+        try:
+            stat = yaml_path.stat()
+        except OSError:
+            continue
+        preview_meta = parse_saved_map_meta(yaml_path, image_path)
+        nav_points = read_nav_points_for_yaml(yaml_path)
+        initial_pose = read_map_initial_pose(yaml_path)
+        items.append(
+            {
+                "name": stem,
+                "yaml": yaml_path.name,
+                "has_image": bool(image_path and image_path.exists()),
+                "image_path": str(image_path) if image_path and image_path.exists() else "",
+                "preview_meta": preview_meta,
+                "nav_points": nav_points,
+                "has_nav_points": bool(nav_points.get("start_pose") and nav_points.get("points")),
+                "nav_points_count": len(nav_points.get("points", [])) if isinstance(nav_points.get("points"), list) else 0,
+                "initial_pose": initial_pose,
+                "has_initial_pose": bool(initial_pose),
+                "updated_at": iso_from_timestamp(stat.st_mtime),
+                "size_bytes": int(stat.st_size),
+            }
+        )
+
+    items.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+    return items
+
+
+def saved_map_preview_bytes(image_path: FilePath) -> bytes | None:
+    if not image_path.exists():
+        return None
+    if Image is None:
+        if image_path.suffix.lower() == ".png":
+            return image_path.read_bytes()
+        return None
+    try:
+        with Image.open(image_path) as image:
+            if image.mode not in {"RGB", "RGBA"}:
+                image = image.convert("RGB")
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            return buffer.getvalue()
+    except Exception:
+        return None
+
+
+def sync_saved_map_previews(
+    *,
+    session: requests.Session,
+    server_url: str,
+    headers: dict[str, str],
+    cache: dict[str, dict[str, Any]],
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    synced: list[dict[str, Any]] = []
+    for item in items:
+        entry = {key: value for key, value in item.items() if key != "image_path"}
+        name = str(item.get("name") or "").strip()
+        image_path_raw = str(item.get("image_path") or "").strip()
+        if not name or not image_path_raw:
+            synced.append(entry)
+            continue
+
+        image_path = FilePath(image_path_raw)
+        try:
+            stat = image_path.stat()
+        except OSError:
+            synced.append(entry)
+            continue
+
+        stamp = f"{stat.st_mtime_ns}:{stat.st_size}"
+        cached = cache.get(name, {})
+        if cached.get("stamp") != stamp:
+            payload = saved_map_preview_bytes(image_path)
+            if payload is not None:
+                try:
+                    response = session.post(
+                        f"{server_url.rstrip('/')}/api/upload/saved-map-preview/{requests.utils.quote(name, safe='')}",
+                        headers=headers,
+                        files={"file": (f"{name}.png", payload, "image/png")},
+                        timeout=20,
+                    )
+                    response.raise_for_status()
+                    body = response.json()
+                    preview = body.get("preview", {}) if isinstance(body, dict) else {}
+                    if isinstance(preview, dict) and preview.get("url"):
+                        cache[name] = {
+                            "stamp": stamp,
+                            "url": str(preview.get("url")),
+                            "uploaded_at": str(preview.get("uploaded_at", "")),
+                        }
+                except Exception as exc:
+                    print(f"[uploader] saved map preview upload failed for {name}: {exc}", flush=True)
+
+        cached = cache.get(name, {})
+        if cached.get("url"):
+            entry["preview_url"] = cached.get("url", "")
+            entry["preview_uploaded_at"] = cached.get("uploaded_at", "")
+        synced.append(entry)
+    return synced
+
+
+def saved_map_items_signature(items: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+    for item in items:
+        parts.append(
+            ":".join(
+                (
+                    str(item.get("name") or ""),
+                    str(item.get("updated_at") or ""),
+                    str(item.get("size_bytes") or 0),
+                    "1" if bool(item.get("has_image")) else "0",
+                )
+            )
+        )
+    return "|".join(parts)
+
+
+def attach_saved_map_preview_cache(
+    items: list[dict[str, Any]],
+    cache: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    synced: list[dict[str, Any]] = []
+    for item in items:
+        entry = {key: value for key, value in item.items() if key != "image_path"}
+        cached = cache.get(str(item.get("name") or "").strip(), {})
+        if cached.get("url"):
+            entry["preview_url"] = cached.get("url", "")
+            entry["preview_uploaded_at"] = cached.get("uploaded_at", "")
+        synced.append(entry)
+    return synced
+
+
+def pose_to_dict(position, orientation, *, frame_id: str = "", source: str = "", captured_at: str = "") -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "x": float(position.x),
+        "y": float(position.y),
+        "yaw": quaternion_to_yaw(
+            float(orientation.x),
+            float(orientation.y),
+            float(orientation.z),
+            float(orientation.w),
+        ),
+    }
+    if frame_id:
+        payload["frame_id"] = frame_id
+    if source:
+        payload["source"] = source
+    if captured_at:
+        payload["captured_at"] = captured_at
+    return payload
+
+
+def capture_mjpeg_frame(url: str, timeout: float = 8.0) -> bytes | None:
+    with requests.get(url, stream=True, timeout=timeout) as response:
+        response.raise_for_status()
+        buffer = bytearray()
+        start = b"\xff\xd8"
+        end = b"\xff\xd9"
+        for chunk in response.iter_content(chunk_size=4096):
+            if not chunk:
+                continue
+            buffer.extend(chunk)
+            begin = buffer.find(start)
+            if begin < 0:
+                continue
+            finish = buffer.find(end, begin + 2)
+            if finish < 0:
+                continue
+            return bytes(buffer[begin : finish + 2])
+    return None
+
+
+def load_json_file(path: FilePath) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def build_mapping_status_payload(ros_status: dict[str, Any]) -> dict[str, Any]:
+    mapping_session = ros_status.get("mapping_session") if isinstance(ros_status.get("mapping_session"), dict) else {}
+    mapping_live = bool(
+        ros_status.get("mapping_process_live")
+        or ros_status.get("mapping_graph_live")
+        or ros_status.get("mapping_stream_live")
+        or mapping_session.get("active")
+    )
+    state = "idle"
+    if ros_status.get("mapping_unexpected_exit"):
+        state = "error"
+    elif mapping_live:
+        state = "mapping"
+    elif mapping_session and bool(mapping_session.get("active")):
+        desired_mode = str(mapping_session.get("desired_mode") or mapping_session.get("mode") or "").strip()
+        state = desired_mode or "mapping"
+    return {
+        "state": state,
+        "mapping_live": mapping_live,
+        "mapping_process_live": bool(ros_status.get("mapping_process_live")),
+        "mapping_graph_live": bool(ros_status.get("mapping_graph_live")),
+        "mapping_stream_live": bool(ros_status.get("mapping_stream_live")),
+        "map_fresh": bool(ros_status.get("map_fresh")),
+        "scan_fresh": bool(ros_status.get("scan_fresh")),
+        "mapping_session": dict(mapping_session),
+        "mapping_unexpected_exit": bool(ros_status.get("mapping_unexpected_exit")),
+        "last_error": str(
+            ros_status.get("mapping_last_error")
+            or ros_status.get("last_ready_error")
+            or ros_status.get("tf_error")
+            or ""
+        ).strip(),
+    }
+
+
+def build_navigation_status_payload(
+    nav_status: dict[str, Any],
+    cruise_status: dict[str, Any],
+    nav_path: dict[str, Any],
+    goal_pose: dict[str, Any],
+) -> dict[str, Any]:
+    path_points = nav_path.get("points") if isinstance(nav_path.get("points"), list) else []
+    stack_live = bool(nav_status.get("navigation_stack_live"))
+    stack_map = optional_clean_map_stem(nav_status.get("navigation_stack_map"))
+    requested_map = optional_clean_map_stem(
+        nav_status.get("requested_map_name")
+        or cruise_status.get("map_name")
+        or cruise_status.get("active_map")
+        or ""
+    )
+    last_map_name = optional_clean_map_stem(nav_status.get("last_map_name") or requested_map)
+    active_map = stack_map if stack_live and stack_map else optional_clean_map_stem(
+        cruise_status.get("map_name")
+        or cruise_status.get("active_map")
+        or nav_status.get("map_name")
+        or ""
+    )
+    map_mismatch = bool(stack_live and stack_map and requested_map and stack_map != requested_map)
+    task_running = bool(nav_status.get("task_running") or cruise_status.get("task_running"))
+    goal_active = bool(nav_status.get("goal_active") or cruise_status.get("goal_active"))
+    active = bool(task_running or goal_active)
+    current_goal = cruise_status.get("current_goal") if active and isinstance(cruise_status.get("current_goal"), dict) else {}
+    if not current_goal and active and isinstance(nav_status.get("current_goal"), dict):
+        current_goal = nav_status.get("current_goal", {})
+    last_goal = cruise_status.get("last_goal") if isinstance(cruise_status.get("last_goal"), dict) else {}
+    if not last_goal and isinstance(cruise_status.get("goal_pose"), dict):
+        last_goal = cruise_status.get("goal_pose", {})
+    task_phase = str(cruise_status.get("task_phase") or "").strip()
+    state = str(cruise_status.get("state") or cruise_status.get("mode") or nav_status.get("nav_state") or "idle").strip()
+    if active and state in {"", "idle", "route_ready", "goal_received"}:
+        state = "navigating" if goal_active else "planning"
+    if not active and state in {"starting", "planning", "navigating", "stalled", "cruise", "goal_active", "task_running"}:
+        state = "idle"
+    goal_update_state = str(cruise_status.get("goal_update_state") or "").strip()
+    route_ready = bool(active and goal_update_state != "planning" and (len(path_points) > 1 or goal_active))
+    message = str(cruise_status.get("message") or nav_status.get("goal_feedback") or "").strip()
+    return {
+        "state": state,
+        "nav_state": state,
+        "task_phase": task_phase or ("navigating" if active else "terminal" if state in {"completed", "failed", "canceled"} else "idle"),
+        "route_ready": route_ready,
+        "action_server_ready": bool(nav_status.get("action_server_ready")),
+        "goal_active": goal_active,
+        "task_running": task_running,
+        "current_path_points": len(path_points) if active else 0,
+        "last_path_points": len(path_points),
+        "goal_feedback": message,
+        "message": message,
+        "current_goal": dict(current_goal) if isinstance(current_goal, dict) else {},
+        "goal_pose": dict(cruise_status.get("goal_pose", {})) if isinstance(cruise_status.get("goal_pose"), dict) else {},
+        "last_goal": dict(last_goal) if isinstance(last_goal, dict) else {},
+        "start_pose": dict(cruise_status.get("start_pose", {})) if isinstance(cruise_status.get("start_pose"), dict) else {},
+        "start_source": str(cruise_status.get("start_source") or "").strip(),
+        "session_id": str(cruise_status.get("session_id") or "").strip(),
+        "map_name": active_map,
+        "active_map": active_map,
+        "requested_map_name": requested_map,
+        "last_map_name": last_map_name,
+        "navigation_stack_live": stack_live,
+        "navigation_stack_map": stack_map,
+        "navigation_stack_pid": int(nav_status.get("navigation_stack_pid", 0) or 0),
+        "map_mismatch": map_mismatch,
+        "map_source": str(cruise_status.get("map_source") or "").strip(),
+        "route_source": str(cruise_status.get("route_source") or "").strip(),
+        "current_index": int(cruise_status.get("current_index", -1) or -1),
+        "point_count": len(cruise_status.get("points", [])) if isinstance(cruise_status.get("points"), list) else 0,
+        "distance_remaining": cruise_status.get("distance_remaining"),
+        "goal_refresh": {"enabled": False, "mode": "disabled"},
+        "goal_refresh_count": 0,
+        "goal_refresh_suppressed": False,
+        "goal_refresh_suppress_distance_m": 0.0,
+        "goal_refresh_suppress_delay_s": 0.0,
+        "goal_refresh_final_send_pending": False,
+        "final_heading_state": "",
+        "final_heading_delay_s": 0.0,
+        "final_heading_error_deg": None,
+        "final_heading_target_deg": None,
+        "last_goal_refresh_at": "",
+        "no_progress_since": str(cruise_status.get("no_progress_since") or ""),
+        "last_progress_at": str(cruise_status.get("last_progress_at") or ""),
+        "goal_revision": int(cruise_status.get("goal_revision", 0) or 0),
+        "goal_replacement_count": int(cruise_status.get("goal_replacement_count", 0) or 0),
+        "previous_goal": dict(cruise_status.get("previous_goal", {})) if isinstance(cruise_status.get("previous_goal"), dict) else {},
+        "last_goal_replaced_at": str(cruise_status.get("last_goal_replaced_at") or ""),
+        "goal_update_state": goal_update_state,
+        "last_result": str(cruise_status.get("last_result") or nav_status.get("last_result") or "").strip(),
+        "last_error": str(cruise_status.get("last_error") or nav_status.get("last_error") or "").strip(),
+        "web_cruise_mode": str(cruise_status.get("mode") or nav_status.get("web_cruise_mode") or "").strip(),
+        "active_task": {
+            "task_name": "cloud_navigation",
+            "mode": state,
+            "session_id": str(cruise_status.get("session_id") or ""),
+        } if active else {},
+    }
+
+
+def cruise_status_should_override(
+    cruise_status: dict[str, Any],
+    *,
+    ros_navigation_active: bool,
+) -> bool:
+    cruise_active = bool(
+        cruise_status.get("task_running") or cruise_status.get("goal_active")
+    )
+    return bool(cruise_status and cruise_active)
+
+
+def write_json_file(path: FilePath, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def occupancy_grid_to_png(msg: OccupancyGrid) -> bytes | None:
+    if Image is None:
+        return None
+    width = int(msg.info.width)
+    height = int(msg.info.height)
+    if width <= 0 or height <= 0 or len(msg.data) != width * height:
+        return None
+
+    pixels: list[int] = []
+    for value in msg.data:
+        if value < 0:
+            pixels.append(205)
+        elif value >= 65:
+            pixels.append(0)
+        else:
+            pixels.append(max(0, min(255, 255 - int(value * 255 / 100))))
+
+    image = Image.new("L", (width, height))
+    image.putdata(pixels)
+    image = image.transpose(Image.FLIP_TOP_BOTTOM).convert("RGB")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def laser_scan_to_png(msg: LaserScan, size: int = 720) -> bytes | None:
+    if Image is None or ImageDraw is None:
+        return None
+
+    image = Image.new("RGB", (size, size), (248, 250, 252))
+    draw = ImageDraw.Draw(image)
+    center = size / 2.0
+
+    valid_points: list[tuple[float, float]] = []
+    angle = float(msg.angle_min)
+    finite_ranges: list[float] = []
+    for item in msg.ranges:
+        rng = float(item)
+        if math.isfinite(rng) and rng > 0.0:
+            if msg.range_min > 0.0 and rng < float(msg.range_min):
+                angle += float(msg.angle_increment)
+                continue
+            if msg.range_max > 0.0 and rng > float(msg.range_max):
+                angle += float(msg.angle_increment)
+                continue
+            valid_points.append((angle, rng))
+            finite_ranges.append(rng)
+        angle += float(msg.angle_increment)
+
+    for factor in (0.16, 0.30, 0.44):
+        radius = center * factor
+        draw.ellipse(
+            (center - radius, center - radius, center + radius, center + radius),
+            outline=(224, 231, 239),
+            width=1,
+        )
+
+    draw.line((center, 0, center, size), fill=(229, 231, 235), width=1)
+    draw.line((0, center, size, center), fill=(229, 231, 235), width=1)
+
+    if valid_points:
+        max_range = max(finite_ranges)
+        if float(msg.range_max) > 0.0:
+            max_range = min(max_range, float(msg.range_max))
+        scale = (center * 0.86) / max(max_range, 0.001)
+        for angle, rng in valid_points:
+            px = center + math.cos(angle) * rng * scale
+            py = center - math.sin(angle) * rng * scale
+            draw.ellipse((px - 1.5, py - 1.5, px + 1.5, py + 1.5), fill=(31, 41, 55))
+
+    draw.ellipse((center - 5, center - 5, center + 5, center + 5), fill=(22, 156, 107))
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+class RosMirror(Node):
+    def __init__(self, *, context: Context, teleop_topic: str, enable_teleop: bool = False):
+        super().__init__("car_cloud_uploader", context=context)
+        self.logs: deque[str] = deque(maxlen=80)
+        self._log_lock = threading.Lock()
+        self.map_meta: dict[str, Any] = {}
+        self.map_frame: bytes | None = None
+        self.scan_frame: bytes | None = None
+        self._latest_map_msg: OccupancyGrid | None = None
+        self._latest_scan_msg: LaserScan | None = None
+        self.nav_path: dict[str, Any] = {"topic": "", "points": []}
+        self.robot_pose: dict[str, Any] = {}
+        self.goal_pose: dict[str, Any] = {}
+        self.exploration_status: dict[str, Any] = {}
+        self.last_map_at = 0.0
+        self.last_scan_at = 0.0
+        self.last_path_at = 0.0
+        self.last_pose_at = 0.0
+        self.last_goal_at = 0.0
+        self.last_exploration_at = 0.0
+        self.nav_action_active = False
+        self.managed_navigation_active = False
+        self.last_nav_action_status_at = 0.0
+        self.last_managed_navigation_status_at = 0.0
+        self.nav_action_status_codes: list[int] = []
+        self.nav_action_status_counts: dict[str, int] = {}
+        self.nav_action_latest_terminal: dict[str, Any] = {}
+        self.nav_action_status_message_count = 0
+        self.nav_action_status_max_entries = 0
+        self.managed_navigation_phase = ""
+        self.managed_navigation_detail = ""
+        self.navigation_session_id = ""
+        self.map_frames_received = 0
+        self.scan_frames_received = 0
+        self._map_frame_rendered_count = 0
+        self._scan_frame_rendered_count = 0
+        self._last_map_render_at = 0.0
+        self._last_scan_render_at = 0.0
+        self.robot_pose_source = ""
+        self.robot_pose_frame_id = ""
+        self.tf_ready = False
+        self.tf_error = ""
+        self._last_summary = ""
+        self._last_graph_check_at = 0.0
+        self._last_graph_nodes: list[str] = []
+        self._last_mapping_nodes: list[str] = []
+        self._last_mapping_graph_live = False
+        self._last_process_check_at = 0.0
+        self._last_mapping_pid_live = False
+        self._last_mapping_process_fallback_live = False
+        self._last_mapping_unexpected_exit_seen_at = ""
+        self._last_map_pose_check_at = 0.0
+        self._last_map_pose: dict[str, Any] | None = None
+        self._teleop_enabled = bool(enable_teleop)
+        self._teleop_topic = str(teleop_topic or "/cmd_vel_cmd").strip() or "/cmd_vel_cmd"
+        self._teleop_state: dict[str, Any] = empty_teleop_state()
+        self._teleop_state_lock = threading.Lock()
+        self._teleop_last_publish_at = 0.0
+        self._teleop_zero_sent = True
+        self._teleop_publisher = None
+
+        map_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        reliable_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+        action_status_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+
+        self.create_subscription(OccupancyGrid, "/map", self._on_map, map_qos)
+        self.create_subscription(LaserScan, "/scan", self._on_scan, qos_profile_sensor_data)
+        self.create_subscription(Path, "/plan", self._on_plan, reliable_qos)
+        self.create_subscription(Path, "/global_plan", self._on_plan, reliable_qos)
+        self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._on_pose, reliable_qos)
+        self.create_subscription(Odometry, "/odom", self._on_odom, qos_profile_sensor_data)
+        self.create_subscription(PoseStamped, "/goal_pose", self._on_goal, reliable_qos)
+        self.create_subscription(PoseStamped, "/move_base_simple/goal", self._on_goal, reliable_qos)
+        if String is not None:
+            self.create_subscription(String, "/frontier_explorer/status", self._on_exploration_status, reliable_qos)
+            self.create_subscription(
+                String,
+                "/maze_turn_manager/status",
+                self._on_managed_navigation_status,
+                action_status_qos,
+            )
+        if GoalStatusArray is not None:
+            self.create_subscription(
+                GoalStatusArray,
+                "/navigate_to_pose/_action/status",
+                self._on_navigation_action_status,
+                action_status_qos,
+            )
+        self.tf_buffer = None
+        self.tf_listener = None
+        if tf2_ros is not None:
+            try:
+                self.tf_buffer = tf2_ros.Buffer()
+                self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+                self.tf_ready = True
+                self.note("tf2 listener ready for map pose")
+            except Exception as exc:
+                self.tf_error = str(exc)
+                self.note(f"tf2 listener disabled: {exc}")
+        else:
+            self.tf_error = "tf2_ros unavailable"
+            self.note("tf2 listener disabled: tf2_ros unavailable")
+        if self._teleop_enabled:
+            self._teleop_publisher = self.create_publisher(Twist, self._teleop_topic, reliable_qos)
+
+        self.note("uploader connected to ROS topics")
+        if self._teleop_enabled:
+            self.note(f"cloud teleop publisher ready on {self._teleop_topic}")
+        else:
+            self.note("cloud teleop disabled")
+
+    def note(self, message: str) -> None:
+        stamp = time.strftime("%H:%M:%S")
+        entry = f"[{stamp}] {message}"
+        with self._log_lock:
+            if not self.logs or self.logs[-1] != entry:
+                self.logs.append(entry)
+
+    def _on_map(self, msg: OccupancyGrid) -> None:
+        self.map_meta = {
+            "width": int(msg.info.width),
+            "height": int(msg.info.height),
+            "resolution": float(msg.info.resolution),
+            "origin_x": float(msg.info.origin.position.x),
+            "origin_y": float(msg.info.origin.position.y),
+        }
+        self._latest_map_msg = msg
+        self.last_map_at = now_s()
+        self.map_frames_received += 1
+
+    def _on_scan(self, msg: LaserScan) -> None:
+        self._latest_scan_msg = msg
+        self.last_scan_at = now_s()
+        self.scan_frames_received += 1
+
+    def render_frames(
+        self,
+        *,
+        map_render_interval: float,
+        scan_render_interval: float,
+        include_scan: bool,
+    ) -> dict[str, bytes | None]:
+        current = now_s()
+        map_fresh = self._fresh(self.last_map_at, 5.0)
+        scan_fresh = self._fresh(self.last_scan_at, 5.0)
+
+        if (
+            map_fresh
+            and self._latest_map_msg is not None
+            and (
+                self.map_frame is None
+                or (
+                    self._map_frame_rendered_count != self.map_frames_received
+                    and current - self._last_map_render_at >= max(0.5, map_render_interval)
+                )
+            )
+        ):
+            rendered = occupancy_grid_to_png(self._latest_map_msg)
+            if rendered:
+                self.map_frame = rendered
+                self._map_frame_rendered_count = self.map_frames_received
+                self._last_map_render_at = current
+
+        if (
+            include_scan
+            and scan_fresh
+            and self._latest_scan_msg is not None
+            and (
+                self.scan_frame is None
+                or (
+                    self._scan_frame_rendered_count != self.scan_frames_received
+                    and current - self._last_scan_render_at >= max(0.5, scan_render_interval)
+                )
+            )
+        ):
+            rendered = laser_scan_to_png(self._latest_scan_msg)
+            if rendered:
+                self.scan_frame = rendered
+                self._scan_frame_rendered_count = self.scan_frames_received
+                self._last_scan_render_at = current
+
+        return {
+            "map_frame": self.map_frame if map_fresh else None,
+            "scan_frame": self.scan_frame if include_scan and scan_fresh else None,
+        }
+
+    def _on_plan(self, msg: Path) -> None:
+        topic_name = msg._topic_name if hasattr(msg, "_topic_name") else "/plan"
+        self.nav_path = {
+            "topic": topic_name,
+            "points": [{"x": float(item.pose.position.x), "y": float(item.pose.position.y)} for item in msg.poses],
+            "captured_at": iso_from_timestamp(now_s()),
+        }
+        self.last_path_at = now_s()
+
+    def _on_pose(self, msg: PoseWithCovarianceStamped) -> None:
+        self.robot_pose = pose_to_dict(
+            msg.pose.pose.position,
+            msg.pose.pose.orientation,
+            frame_id="map",
+            source="/amcl_pose",
+            captured_at=iso_from_timestamp(now_s()),
+        )
+        self.robot_pose_source = "/amcl_pose"
+        self.robot_pose_frame_id = "map"
+        self.last_pose_at = now_s()
+
+    def _on_odom(self, msg: Odometry) -> None:
+        if self.last_pose_at and now_s() - self.last_pose_at < 1.5 and self.robot_pose_source == "/amcl_pose":
+            return
+        self.robot_pose = pose_to_dict(
+            msg.pose.pose.position,
+            msg.pose.pose.orientation,
+            frame_id="odom",
+            source="/odom",
+            captured_at=iso_from_timestamp(now_s()),
+        )
+        self.robot_pose_source = "/odom"
+        self.robot_pose_frame_id = "odom"
+        self.last_pose_at = now_s()
+
+    def _on_goal(self, msg: PoseStamped) -> None:
+        self.goal_pose = pose_to_dict(msg.pose.position, msg.pose.orientation)
+        self.last_goal_at = now_s()
+        self.managed_navigation_active = True
+        self.navigation_session_id = f"ros-goal-{int(self.last_goal_at * 1000)}"
+
+    def _on_navigation_action_status(self, msg) -> None:
+        active_statuses = {1, 2, 3}
+        active_items = []
+        latest_terminal = None
+        counts: dict[str, int] = {}
+        for item in msg.status_list:
+            status = int(item.status)
+            counts[str(status)] = counts.get(str(status), 0) + 1
+            if status in active_statuses:
+                active_items.append(item)
+            else:
+                latest_terminal = item
+        bounded_codes = [int(item.status) for item in active_items]
+        if latest_terminal is not None:
+            bounded_codes.append(int(latest_terminal.status))
+            try:
+                terminal_goal_id = bytes(latest_terminal.goal_info.goal_id.uuid).hex()
+            except Exception:
+                terminal_goal_id = ""
+            self.nav_action_latest_terminal = {
+                "goal_id": terminal_goal_id,
+                "status": int(latest_terminal.status),
+            }
+        else:
+            self.nav_action_latest_terminal = {}
+        self.nav_action_status_codes = bounded_codes
+        self.nav_action_status_counts = counts
+        self.nav_action_status_message_count += 1
+        self.nav_action_status_max_entries = max(
+            self.nav_action_status_max_entries,
+            len(msg.status_list),
+        )
+        self.nav_action_active = bool(active_items)
+        self.last_nav_action_status_at = now_s()
+        if active_items:
+            try:
+                goal_uuid = bytes(active_items[-1].goal_info.goal_id.uuid).hex()
+            except Exception:
+                goal_uuid = ""
+            if goal_uuid:
+                self.navigation_session_id = f"ros-action-{goal_uuid}"
+
+    def _on_managed_navigation_status(self, msg) -> None:
+        text = str(getattr(msg, "data", "") or "").strip()
+        phase = text.split(":", 1)[0].strip().upper()
+        detail = text.split(":", 1)[1].strip() if ":" in text else ""
+        active_phases = {
+            "PLANNING",
+            "REPLANNING",
+            "TURN_IN_PLACE",
+            "DRIVE_TO_CORNER",
+            "DRIVE_TO_GOAL",
+        }
+        terminal_phases = {"DONE", "FAILED", "SAFETY_STOP", "CANCELED", "CANCELLED"}
+        if phase in active_phases:
+            self.managed_navigation_active = True
+            if not self.navigation_session_id:
+                self.navigation_session_id = f"ros-managed-{int(now_s() * 1000)}"
+        elif phase in terminal_phases:
+            self.managed_navigation_active = False
+        self.managed_navigation_phase = phase
+        self.managed_navigation_detail = detail
+        self.last_managed_navigation_status_at = now_s()
+
+    def _on_exploration_status(self, msg) -> None:
+        try:
+            payload = json.loads(str(getattr(msg, "data", "") or "{}"))
+        except Exception:
+            payload = {"state": "unknown", "message": str(getattr(msg, "data", "") or "")}
+        if isinstance(payload, dict):
+            payload["fresh"] = True
+            self.exploration_status = payload
+            self.last_exploration_at = now_s()
+
+    def _lookup_map_pose(self) -> dict[str, Any] | None:
+        if self.tf_buffer is None:
+            return None
+        for child_frame in ("base_footprint", "base_link"):
+            try:
+                transform = self.tf_buffer.lookup_transform("map", child_frame, rclpy.time.Time())
+                pose = pose_to_dict(
+                    transform.transform.translation,
+                    transform.transform.rotation,
+                    frame_id="map",
+                    source=f"tf:map->{child_frame}",
+                    captured_at=iso_from_timestamp(now_s()),
+                )
+                self.tf_error = ""
+                return pose
+            except Exception as exc:
+                self.tf_error = str(exc)
+        return None
+
+    def _lookup_map_pose_cached(self, *, active: bool, interval: float = 1.0) -> dict[str, Any] | None:
+        if not active:
+            return None
+        current = now_s()
+        if current - self._last_map_pose_check_at < max(0.1, interval):
+            return dict(self._last_map_pose) if self._last_map_pose else None
+        self._last_map_pose_check_at = current
+        pose = self._lookup_map_pose()
+        self._last_map_pose = dict(pose) if pose else None
+        return dict(self._last_map_pose) if self._last_map_pose else None
+
+    def _mapping_process_snapshot(self, *, interval: float = 2.0) -> tuple[bool, bool]:
+        current = now_s()
+        if current - self._last_process_check_at < max(0.5, interval):
+            return self._last_mapping_pid_live, self._last_mapping_process_fallback_live
+        self._last_process_check_at = current
+        self._last_mapping_pid_live = pid_file_process_live(MAPPING_PID_FILE)
+        self._last_mapping_process_fallback_live = process_name_live((
+            "rt_robot_nav2_complete.launch.py.*use_slam:=true.*use_nav:=false",
+            "/install/chassis_controller/lib/chassis_controller/frontier_explorer",
+            "/opt/ros/foxy/lib/slam_toolbox/(async_slam_toolbox_node|sync_slam_toolbox_node|localization_slam_toolbox_node)",
+        ))
+        return self._last_mapping_pid_live, self._last_mapping_process_fallback_live
+
+    def _mapping_graph_snapshot(self) -> tuple[bool, list[str]]:
+        current = now_s()
+        if current - self._last_graph_check_at < 2.0:
+            return self._last_mapping_graph_live, list(self._last_mapping_nodes)
+        self._last_graph_check_at = current
+        try:
+            node_names = sorted(str(item) for item in self.get_node_names())
+        except Exception:
+            node_names = []
+        mapping_nodes = [
+            name for name in node_names
+            if name in MAPPING_NODE_NAMES
+            or name.endswith("/frontier_explorer")
+            or name.endswith("frontier_explorer")
+            or name.endswith("/slam_toolbox")
+            or name.endswith("slam_toolbox")
+            or name.endswith("/slam_gmapping")
+            or name.endswith("slam_gmapping")
+            or name.endswith("/async_slam_toolbox_node")
+            or name.endswith("async_slam_toolbox_node")
+            or name.endswith("/sync_slam_toolbox_node")
+            or name.endswith("sync_slam_toolbox_node")
+        ]
+        self._last_graph_nodes = node_names
+        self._last_mapping_nodes = mapping_nodes
+        self._last_mapping_graph_live = bool(mapping_nodes)
+        return self._last_mapping_graph_live, list(mapping_nodes)
+
+    def _fresh(self, stamp: float, timeout_s: float) -> bool:
+        return stamp > 0.0 and (now_s() - stamp) <= timeout_s
+
+    def clear_navigation_cache_for_mapping(self) -> None:
+        self.nav_path = {"topic": "", "points": []}
+        self.goal_pose = {}
+        self.last_path_at = 0.0
+        self.last_goal_at = 0.0
+        self.note("navigation cache cleared for mapping")
+
+    def set_cloud_teleop(self, teleop_payload: dict[str, Any]) -> None:
+        if not self._teleop_enabled:
+            return
+        clean = sanitize_teleop_state(teleop_payload, board_id=str(teleop_payload.get("board_id") or "").strip())
+        with self._teleop_state_lock:
+            previous_status = str(self._teleop_state.get("status") or "")
+            previous_controller = str(self._teleop_state.get("controller_id") or "")
+            self._teleop_state = clean
+        status = str(clean.get("status") or "idle")
+        controller_id = str(clean.get("controller_id") or "")
+        if status != previous_status or controller_id != previous_controller:
+            owner = controller_id[:8] if controller_id else "-"
+            self.note(f"teleop status={status} owner={owner}")
+
+    def _publish_cloud_twist(self, *, linear_x: float, linear_y: float, angular_z: float) -> None:
+        if self._teleop_publisher is None:
+            return
+        message = Twist()
+        message.linear.x = float(linear_x)
+        message.linear.y = float(linear_y)
+        message.angular.z = float(angular_z)
+        self._teleop_publisher.publish(message)
+        self._teleop_last_publish_at = now_s()
+        self._teleop_zero_sent = (
+            abs(float(linear_x)) <= 1e-9
+            and abs(float(linear_y)) <= 1e-9
+            and abs(float(angular_z)) <= 1e-9
+        )
+
+    def pump_cloud_teleop(self) -> None:
+        if not self._teleop_enabled:
+            return
+        with self._teleop_state_lock:
+            current = dict(self._teleop_state)
+
+        enabled = bool(current.get("enabled"))
+        twist = current.get("twist", {}) if isinstance(current.get("twist"), dict) else {}
+        linear_x = float(twist.get("linear_x", 0.0) or 0.0)
+        linear_y = float(twist.get("linear_y", 0.0) or 0.0)
+        angular_z = float(twist.get("angular_z", 0.0) or 0.0)
+
+        if enabled:
+            self._publish_cloud_twist(linear_x=linear_x, linear_y=linear_y, angular_z=angular_z)
+            return
+
+        if not self._teleop_zero_sent:
+            self._publish_cloud_twist(linear_x=0.0, linear_y=0.0, angular_z=0.0)
+
+    def teleop_snapshot(self) -> dict[str, Any]:
+        if not self._teleop_enabled:
+            return {
+                "topic": self._teleop_topic,
+                "enabled": False,
+                "status": "disabled",
+                "controller_id": "",
+                "speed_level": 0,
+                "pressed_keys": [],
+                "twist": {"linear_x": 0.0, "linear_y": 0.0, "angular_z": 0.0},
+                "last_publish_at": "",
+                "subscriber_count": 0,
+            }
+        with self._teleop_state_lock:
+            current = dict(self._teleop_state)
+        return {
+            "topic": self._teleop_topic,
+            "enabled": bool(current.get("enabled")),
+            "status": str(current.get("status") or "idle"),
+            "controller_id": str(current.get("controller_id") or ""),
+            "speed_level": int(current.get("speed_level", 0) or 0),
+            "pressed_keys": list(current.get("pressed_keys", [])) if isinstance(current.get("pressed_keys"), list) else [],
+            "twist": dict(current.get("twist", {})) if isinstance(current.get("twist"), dict) else {},
+            "last_publish_at": iso_from_timestamp(self._teleop_last_publish_at) if self._teleop_last_publish_at > 0 else "",
+            "subscriber_count": int(self.count_subscribers(self._teleop_topic)),
+        }
+
+    def cloud_snapshot(self) -> dict[str, Any]:
+        now = now_s()
+        map_fresh = self._fresh(self.last_map_at, 5.0)
+        scan_fresh = self._fresh(self.last_scan_at, 5.0)
+        path_fresh = self._fresh(self.last_path_at, 3.0) and bool(self.nav_path.get("points"))
+        pose_fresh = self._fresh(self.last_pose_at, 3.0)
+        goal_fresh = self._fresh(self.last_goal_at, 30.0)
+        exploration_fresh = self._fresh(self.last_exploration_at, 5.0)
+        map_age_s = round(max(0.0, now - self.last_map_at), 2) if self.last_map_at > 0 else None
+        scan_age_s = round(max(0.0, now - self.last_scan_at), 2) if self.last_scan_at > 0 else None
+        mapping_pid_live, mapping_process_fallback_live = self._mapping_process_snapshot()
+        mapping_graph_live, mapping_nodes = self._mapping_graph_snapshot()
+        mapping_session = load_json_file(MAPPING_SESSION_FILE)
+        mapping_session_active = bool(mapping_session.get("active")) and str(
+            mapping_session.get("desired_mode") or ""
+        ) == "mapping"
+        mapping_last_pid = read_pid_file(MAPPING_PID_FILE)
+        if mapping_last_pid <= 0:
+            try:
+                mapping_last_pid = int(mapping_session.get("pid", 0) or 0)
+            except Exception:
+                mapping_last_pid = 0
+        mapping_pid_stale = bool(MAPPING_PID_FILE.exists() and mapping_last_pid > 0 and not mapping_pid_live)
+        mapping_process_live = bool(mapping_pid_live or mapping_graph_live or mapping_process_fallback_live)
+        mapping_stream_live = bool(mapping_session_active and (map_fresh or scan_fresh))
+        mapping_session_live = bool(mapping_process_live or mapping_stream_live or mapping_session_active)
+        graph_nodes = {str(name).strip("/").rsplit("/", 1)[-1] for name in self._last_graph_nodes}
+        navigation_graph_ready = bool(
+            "controller_server" in graph_nodes
+            and "planner_server" in graph_nodes
+            and ({"maze_turn_manager", "bt_navigator"} & graph_nodes)
+        )
+        navigation_goal_active = bool(
+            navigation_graph_ready
+            and (self.nav_action_active or self.managed_navigation_active)
+        )
+        navigation_active = bool(navigation_goal_active)
+        mapping_unexpected_exit = bool(mapping_session_active and not mapping_process_live and mapping_pid_stale)
+        if mapping_unexpected_exit and not self._last_mapping_unexpected_exit_seen_at:
+            self._last_mapping_unexpected_exit_seen_at = iso_from_timestamp(now)
+        if not mapping_unexpected_exit:
+            self._last_mapping_unexpected_exit_seen_at = ""
+        map_pose = self._lookup_map_pose_cached(active=bool(mapping_process_live or map_fresh))
+        if map_pose:
+            self.robot_pose = map_pose
+            self.robot_pose_source = str(map_pose.get("source") or "")
+            self.robot_pose_frame_id = "map"
+            self.last_pose_at = now
+            pose_fresh = True
+
+        if mapping_process_live or mapping_graph_live or mapping_session_active:
+            mode = "mapping"
+        elif navigation_graph_ready or path_fresh or goal_fresh:
+            mode = "navigation"
+        elif mapping_session_live:
+            mode = "mapping"
+        else:
+            mode = "idle"
+
+        summary = (
+            f"mode={mode} map={int(map_fresh)} scan={int(scan_fresh)} "
+            f"mproc={int(mapping_process_live)} path={int(path_fresh)} pose={int(pose_fresh)} "
+            f"pose_frame={self.robot_pose_frame_id or '-'}"
+        )
+        if summary != self._last_summary:
+            self.note(summary)
+            self._last_summary = summary
+
+        current_goal = self.goal_pose if goal_fresh else {}
+        exploration = dict(self.exploration_status)
+        if exploration:
+            exploration["fresh"] = exploration_fresh
+            if self.last_exploration_at > 0:
+                exploration["last_seen_at"] = iso_from_timestamp(self.last_exploration_at)
+        with self._log_lock:
+            logs = list(self.logs)
+        return {
+            "ros_status": {
+                "mapping_live": mapping_session_live,
+                "mapping_process_live": mapping_process_live,
+                "mapping_pid_live": mapping_pid_live,
+                "mapping_pid_stale": mapping_pid_stale,
+                "mapping_last_pid": mapping_last_pid,
+                "mapping_unexpected_exit": mapping_unexpected_exit,
+                "mapping_last_exit_seen_at": self._last_mapping_unexpected_exit_seen_at,
+                "mapping_session": mapping_session,
+                "mapping_graph_live": mapping_graph_live,
+                "mapping_process_fallback_live": mapping_process_fallback_live,
+                "mapping_nodes": mapping_nodes,
+                "mapping_stream_live": mapping_stream_live,
+                "navigation_mode": mode,
+                "scan_fresh": scan_fresh,
+                "map_fresh": map_fresh,
+                "last_map_age_s": map_age_s,
+                "last_scan_age_s": scan_age_s,
+                "map_frames_received": int(self.map_frames_received),
+                "scan_frames_received": int(self.scan_frames_received),
+                "odom_fresh": pose_fresh,
+                "pose_fresh": pose_fresh,
+                "pose_frame_id": self.robot_pose_frame_id,
+                "pose_source": self.robot_pose_source,
+                "tf_ready": bool(self.tf_ready),
+                "tf_error": self.tf_error,
+                "imu_filtered_live": False,
+                "ekf_ready": pose_fresh,
+                "last_ready_error": "",
+                "exploration": exploration,
+            },
+            "nav_status": {
+                "nav_state": "goal_active" if navigation_active else ("goal_received" if goal_fresh else "idle"),
+                "action_server_ready": navigation_graph_ready,
+                "goal_active": navigation_active,
+                "task_running": navigation_active,
+                "action_goal_active": bool(self.nav_action_active),
+                "managed_navigation_active": bool(self.managed_navigation_active),
+                "managed_navigation_phase": self.managed_navigation_phase,
+                "managed_navigation_detail": self.managed_navigation_detail,
+                "action_status_codes": list(self.nav_action_status_codes),
+                "action_status_summary": {
+                    "active_count": sum(
+                        count
+                        for status, count in self.nav_action_status_counts.items()
+                        if int(status) in {1, 2, 3}
+                    ),
+                    "current_counts": dict(self.nav_action_status_counts),
+                    "latest_terminal": dict(self.nav_action_latest_terminal),
+                    "message_count": int(self.nav_action_status_message_count),
+                    "max_received_entries": int(self.nav_action_status_max_entries),
+                    "retained_code_count": len(self.nav_action_status_codes),
+                },
+                "last_action_status_age_s": None
+                if self.last_nav_action_status_at <= 0.0
+                else round(max(0.0, now - self.last_nav_action_status_at), 3),
+                "session_id": self.navigation_session_id if navigation_active else "",
+                "blocked": False,
+                "safety_interlock_reason": "",
+                "goal_feedback": f"route points {len(self.nav_path.get('points', []))}" if path_fresh else "",
+                "last_result": "",
+                "last_error": "",
+                "current_goal": current_goal,
+            },
+            "map_meta": dict(self.map_meta),
+            "map_frame": self.map_frame if map_fresh else None,
+            "scan_frame": self.scan_frame if mapping_session_live and scan_fresh else None,
+            "nav_path": dict(self.nav_path),
+            "robot_pose": dict(self.robot_pose) if pose_fresh else {},
+            "goal_pose": dict(current_goal),
+            "logs": logs,
+        }
+
+
+class CommandRunner:
+    def __init__(self, command: dict[str, Any], ros_node: RosMirror):
+        self.command = command
+        self.ros_node = ros_node
+        self.action = str(command.get("action") or "").strip()
+        self.command_id = str(command.get("id") or "").strip()
+        self._lock = threading.Lock()
+        self._thread = threading.Thread(target=self._run, name=f"cmd-{self.command_id}", daemon=True)
+        self._done = False
+        self._status = "running"
+        self._result: dict[str, Any] = {"message": f"command running: {self.action}"}
+        self._running_uploaded = False
+        self._started_at = now_s()
+        try:
+            created_epoch_ms = float(command.get("created_at_epoch_ms", 0) or 0)
+            claimed_epoch_ms = float(command.get("claimed_at_epoch_ms", 0) or 0)
+        except (TypeError, ValueError):
+            created_epoch_ms = 0.0
+            claimed_epoch_ms = 0.0
+        if created_epoch_ms > 0.0 and claimed_epoch_ms >= created_epoch_ms:
+            self._command_wait_ms = round(claimed_epoch_ms - created_epoch_ms, 3)
+        else:
+            created_at = iso_timestamp(command.get("created_at"))
+            self._command_wait_ms = (
+                round(max(0.0, self._started_at - created_at) * 1000.0, 3)
+                if created_at > 0.0
+                else 0.0
+            )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def _run(self) -> None:
+        status, result = execute_whitelisted_command(self.command, self.ros_node)
+        timings = result.setdefault("timings_ms", {})
+        if isinstance(timings, dict):
+            timings["command_wait"] = self._command_wait_ms
+            timings["command_claim"] = self._command_wait_ms
+        with self._lock:
+            self._status = status
+            self._result = result
+            self._done = True
+
+    def mark_running_uploaded(self) -> None:
+        with self._lock:
+            self._running_uploaded = True
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "command_id": self.command_id,
+                "action": self.action,
+                "done": self._done,
+                "status": self._status,
+                "result": dict(self._result),
+                "running_uploaded": self._running_uploaded,
+                "started_at": self._started_at,
+                "command_wait_ms": self._command_wait_ms,
+            }
+
+    def expired_snapshot(self, timeout_s: float) -> dict[str, Any] | None:
+        with self._lock:
+            if self._done:
+                return None
+            age_s = now_s() - self._started_at
+            if age_s <= timeout_s:
+                return None
+            self._status = "failed"
+            self._result = {
+                "message": f"command watchdog expired: {self.action}",
+                "timeout_s": round(timeout_s, 1),
+                "age_s": round(age_s, 1),
+                "diagnostics": command_diagnostics(),
+            }
+            self._done = True
+            return {
+                "command_id": self.command_id,
+                "action": self.action,
+                "done": self._done,
+                "status": self._status,
+                "result": dict(self._result),
+                "running_uploaded": self._running_uploaded,
+                "started_at": self._started_at,
+            }
+
+
+def safe_get_json(session: requests.Session, url: str, timeout: float = 3.0) -> dict[str, Any]:
+    try:
+        response = session.get(url, timeout=max(0.1, float(timeout)))
+        response.raise_for_status()
+        payload = response.json()
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def safe_capture_frame(url: str) -> bytes | None:
+    try:
+        return capture_mjpeg_frame(url)
+    except Exception:
+        return None
+
+
+class AudioLevelSampler:
+    def __init__(self, *, device: str, sample_rate: int, interval: float, enabled: bool):
+        self.device = str(device or "").strip()
+        self.sample_rate = max(4000, int(sample_rate or 16000))
+        self.interval = max(0.5, float(interval or 2.0))
+        self.enabled = bool(enabled and self.device)
+        self._lock = threading.Lock()
+        self._latest: dict[str, Any] = self._empty_snapshot("disabled" if not self.enabled else "starting")
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _empty_snapshot(self, status: str, message: str = "") -> dict[str, Any]:
+        payload = {
+            "value": None,
+            "unit": "dBFS",
+            "status": status,
+            "device": self.device,
+            "sample_rate": self.sample_rate,
+            "captured_at": "",
+            "rms": None,
+            "peak": None,
+        }
+        if message:
+            payload["message"] = message
+        return payload
+
+    def start(self) -> None:
+        if not self.enabled or self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._run, name="audio-level-sampler", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return dict(self._latest)
+
+    def _set_latest(self, payload: dict[str, Any]) -> None:
+        with self._lock:
+            self._latest = payload
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            started = now_s()
+            try:
+                self._set_latest(self._capture_once())
+            except Exception as exc:
+                self._set_latest(self._empty_snapshot("error", str(exc)))
+                print(f"[uploader] audio sample failed: {exc}", flush=True)
+            elapsed = now_s() - started
+            self._stop_event.wait(max(0.1, self.interval - elapsed))
+
+    def _capture_once(self) -> dict[str, Any]:
+        duration = max(1, int(round(min(5.0, self.interval))))
+        command = [
+            "arecord",
+            "-q",
+            "-D",
+            self.device,
+            "-f",
+            "S16_LE",
+            "-r",
+            str(self.sample_rate),
+            "-c",
+            "1",
+            "-d",
+            str(duration),
+            "-t",
+            "raw",
+        ]
+        completed = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=duration + 3,
+            check=False,
+        )
+        if completed.returncode != 0:
+            stderr = completed.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(stderr or f"arecord exited with {completed.returncode}")
+        data = completed.stdout
+        usable = len(data) - (len(data) % 2)
+        if usable <= 0:
+            raise RuntimeError("arecord returned no PCM samples")
+        sample_count = usable // 2
+        sum_squares = 0.0
+        peak = 0
+        for (sample,) in struct.iter_unpack("<h", data[:usable]):
+            abs_sample = abs(int(sample))
+            peak = max(peak, abs_sample)
+            sum_squares += float(sample) * float(sample)
+        rms = math.sqrt(sum_squares / float(sample_count))
+        dbfs = 20.0 * math.log10(max(rms, 1.0) / 32768.0)
+        return {
+            "value": round(dbfs, 1),
+            "unit": "dBFS",
+            "status": "ok",
+            "message": "",
+            "captured_at": iso_from_timestamp(now_s()),
+            "device": self.device,
+            "sample_rate": self.sample_rate,
+            "sample_count": sample_count,
+            "duration": duration,
+            "rms": round(rms, 2),
+            "peak": peak,
+        }
+
+
+class InfraredTemperatureSampler:
+    REQUEST_FRAME = bytes([0x5A, 0x01, 0x00, 0x5B])
+    RESPONSE_LENGTH = 9
+
+    def __init__(self, *, port: str, interval: float, timeout: float, enabled: bool):
+        self.port = str(port or "").strip()
+        self.interval = max(0.5, float(interval or 2.0))
+        self.timeout = max(0.2, float(timeout or 1.0))
+        self.enabled = bool(enabled and self.port)
+        self._lock = threading.Lock()
+        self._latest: dict[str, Any] = self._empty_snapshot("disabled" if not self.enabled else "starting")
+        self._latest_metric: dict[str, Any] = {}
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _empty_snapshot(self, status: str, message: str = "") -> dict[str, Any]:
+        payload = {
+            "value": None,
+            "unit": "C",
+            "status": status,
+            "source": "usb_ir_temperature",
+            "device": self.port,
+            "captured_at": "",
+        }
+        if message:
+            payload["message"] = message
+        return payload
+
+    def start(self) -> None:
+        if not self.enabled or self._thread is not None:
+            return
+        if serial is None:
+            self._set_latest(self._empty_snapshot("error", "pyserial is unavailable"))
+            print("[uploader] infrared temperature sampler failed: pyserial is unavailable", flush=True)
+            return
+        self._thread = threading.Thread(target=self._run, name="infrared-temperature-sampler", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return dict(self._latest)
+
+    def cabinet_metric_snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            if str(self._latest.get("status") or "") != "ok":
+                return {}
+            return dict(self._latest_metric)
+
+    def _set_latest(self, payload: dict[str, Any]) -> None:
+        with self._lock:
+            self._latest = payload
+            if str(payload.get("status") or "") == "ok":
+                self._latest_metric = payload
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            started = now_s()
+            try:
+                self._set_latest(self._capture_once())
+            except Exception as exc:
+                self._set_latest(self._empty_snapshot("error", str(exc)))
+                print(f"[uploader] infrared temperature sample failed: {exc}", flush=True)
+            elapsed = now_s() - started
+            self._stop_event.wait(max(0.1, self.interval - elapsed))
+
+    def _capture_once(self) -> dict[str, Any]:
+        if serial is None:
+            raise RuntimeError("pyserial is unavailable")
+        serial_port = serial.Serial(
+            self.port,
+            baudrate=9600,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            timeout=self.timeout,
+            write_timeout=self.timeout,
+        )
+        try:
+            with contextlib.suppress(Exception):
+                serial_port.reset_input_buffer()
+            with contextlib.suppress(Exception):
+                serial_port.reset_output_buffer()
+            serial_port.write(self.REQUEST_FRAME)
+            serial_port.flush()
+            frame = self._read_response(serial_port)
+        finally:
+            with contextlib.suppress(Exception):
+                serial_port.close()
+
+        ambient = self._decode_temperature(frame[2], frame[3])
+        obj = self._decode_temperature(frame[4], frame[5])
+        body = self._decode_temperature(frame[6], frame[7])
+        captured_at = iso_from_timestamp(now_s())
+        return {
+            "value": obj,
+            "object_temperature": obj,
+            "ambient_temperature": ambient,
+            "body_temperature": body,
+            "unit": "C",
+            "status": "ok",
+            "source": "usb_ir_temperature",
+            "device": self.port,
+            "captured_at": captured_at,
+            "raw_hex": frame.hex(" "),
+        }
+
+    def _read_response(self, serial_port: Any) -> bytes:
+        deadline = now_s() + self.timeout
+        while now_s() < deadline:
+            first = serial_port.read(1)
+            if not first:
+                self._stop_event.wait(0.01)
+                continue
+            if first[0] != 0xA5:
+                continue
+            rest = serial_port.read(self.RESPONSE_LENGTH - 1)
+            if len(rest) != self.RESPONSE_LENGTH - 1:
+                raise RuntimeError(f"incomplete infrared temperature frame: {len(rest) + 1} bytes")
+            frame = first + rest
+            if frame[1] != 0x81:
+                continue
+            expected = sum(frame[:8]) & 0xFF
+            actual = frame[8]
+            if expected != actual:
+                raise RuntimeError(f"invalid infrared temperature checksum: expected 0x{expected:02X}, got 0x{actual:02X}")
+            return frame
+        raise RuntimeError("infrared temperature response timeout")
+
+    @staticmethod
+    def _decode_temperature(high: int, low: int) -> float:
+        raw = ((int(high) & 0xFF) << 8) | (int(low) & 0xFF)
+        return round(raw / 10.0, 1)
+
+
+def merged_logs(*chunks: list[str]) -> list[str]:
+    merged: list[str] = []
+    for chunk in chunks:
+        for item in chunk:
+            text = str(item).strip()
+            if text:
+                merged.append(text)
+    return merged[-80:]
+
+
+def request_json(
+    session: requests.Session,
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    json_payload: dict[str, Any] | None = None,
+    timeout: float = 8.0,
+) -> dict[str, Any]:
+    response = session.request(method, url, headers=headers, json=json_payload, timeout=timeout)
+    response.raise_for_status()
+    payload = response.json()
+    return payload if isinstance(payload, dict) else {}
+
+
+def clip_text(text: str, *, limit: int = 2000) -> str:
+    return text[-limit:] if len(text) > limit else text
+
+
+class CabinetNavTakeoverManager:
+    def __init__(self, args: argparse.Namespace):
+        self.args = args
+        self.enabled = bool(getattr(args, "enable_cabinet_nav_takeover", False))
+        self.status_file = FilePath(str(getattr(args, "cabinet_takeover_status_file", "") or CABINET_TAKEOVER_STATUS_PATH))
+        self.last_status_file = self.status_file.with_name("last_terminal_status.json")
+        self.process: subprocess.Popen | None = None
+        self._log_handle: Any = None
+        self.last_result: dict[str, Any] = load_json_file(self.last_status_file)
+        self.last_start_at = 0.0
+        self.last_stop_reason = ""
+        self.blocked_for_navigation_session = False
+        self.navigation_session_id = ""
+        self.pre_takeover_retry_count = 0
+        self.pre_takeover_retry_exhausted = False
+        self.next_pre_takeover_retry_at = 0.0
+        self.last_outbox_retry_at = 0.0
+        self.outbox_uploaded = 0
+        self.outbox_last_error = ""
+        self.navigation_inactive_since = 0.0
+
+    def _reset_session_state(self, session_id: str = "") -> None:
+        self.navigation_session_id = str(session_id or "").strip()
+        self.blocked_for_navigation_session = False
+        self.pre_takeover_retry_count = 0
+        self.pre_takeover_retry_exhausted = False
+        self.next_pre_takeover_retry_at = 0.0
+
+    def _schedule_pre_takeover_retry(self, timestamp: float | None = None) -> None:
+        retry_limit = max(0, int(self.args.cabinet_takeover_pre_retries))
+        if self.pre_takeover_retry_count >= retry_limit:
+            self.pre_takeover_retry_exhausted = True
+            self.next_pre_takeover_retry_at = 0.0
+            return
+        self.pre_takeover_retry_count += 1
+        self.pre_takeover_retry_exhausted = False
+        self.next_pre_takeover_retry_at = float(timestamp if timestamp is not None else now_s()) + max(
+            1.0, float(self.args.cabinet_takeover_restart_cooldown)
+        )
+
+    @property
+    def script_path(self) -> FilePath:
+        return ROOT_DIR / "ros2_tools" / "cabinet_visual_mission.py"
+
+    def _read_status(self) -> dict[str, Any]:
+        return load_json_file(self.status_file)
+
+    def _write_status(self, state: str, *, result: dict[str, Any] | None = None, takeover_active: bool = False) -> None:
+        payload = {
+            "state": state,
+            "takeover_active": bool(takeover_active),
+            "target_seen_count": 0,
+            "lost_count": 0,
+            "last_detection": {},
+            "last_error": "",
+            "result": result or {},
+            "manager_enabled": bool(self.enabled),
+            "updated_at": iso_from_timestamp(now_s()),
+        }
+        with contextlib.suppress(Exception):
+            write_json_file(self.status_file, payload)
+
+    def _preserve_terminal_status(
+        self,
+        status: dict[str, Any],
+        *,
+        returncode: int | None = None,
+    ) -> None:
+        if not status:
+            return
+        record = dict(status)
+        if returncode is not None:
+            record["returncode"] = int(returncode)
+        record["recorded_at"] = iso_from_timestamp(now_s())
+        self.last_result = record
+        with contextlib.suppress(Exception):
+            write_json_file(self.last_status_file, record)
+
+    def _running(self) -> bool:
+        return self.process is not None and self.process.poll() is None
+
+    def _close_log(self) -> None:
+        if self._log_handle is not None:
+            with contextlib.suppress(Exception):
+                self._log_handle.close()
+            self._log_handle = None
+
+    def _active_after_nav_cancel(self, status: dict[str, Any]) -> bool:
+        state = str(status.get("state") or "")
+        return bool(status.get("takeover_active")) or state in {
+            "MONITOR_NAV_TERMINAL_GRACE",
+            "CANCEL_NAV",
+            "DOCK",
+            "DOCK_FAILED_SCAN_FALLBACK",
+            "DOCK_SKIPPED",
+            "ARM_SCAN_METERS",
+            "ARM_SCAN_INDICATOR_DIGIT",
+            "ARM_SCAN_STATUS_LIGHTS",
+            "VERIFY",
+            "UPLOAD",
+        }
+
+    def _clear_terminal_status_if_idle(self, status: dict[str, Any]) -> None:
+        state = str(status.get("state") or "")
+        if state not in CABINET_TAKEOVER_TERMINAL_STATES:
+            return
+        self._preserve_terminal_status(status)
+        self._write_status("idle")
+
+    def _build_command(self) -> list[str]:
+        cmd = [
+            "python3",
+            str(self.script_path),
+            "--server-url",
+            str(self.args.server_url).rstrip("/"),
+            "--upload-token",
+            str(self.args.upload_token),
+            "--board-id",
+            str(self.args.board_id),
+            "--board-label",
+            str(self.args.board_label),
+            "--profile",
+            str(self.args.cabinet_takeover_profile),
+            "--status-file",
+            str(self.status_file),
+            "--cmd-vel-topic",
+            str(self.args.cabinet_takeover_cmd_vel_topic),
+            "--scan-topic",
+            str(self.args.cabinet_takeover_scan_topic),
+            "--device",
+            str(self.args.cabinet_takeover_device),
+            "--preview-width",
+            str(int(self.args.cabinet_takeover_preview_width)),
+            "--preview-height",
+            str(int(self.args.cabinet_takeover_preview_height)),
+            "--fps",
+            str(int(self.args.cabinet_takeover_fps)),
+            "--rotate",
+            str(int(self.args.cabinet_takeover_rotate)),
+            "--conf",
+            f"{float(self.args.cabinet_takeover_conf):.3f}",
+            "--backend",
+            str(self.args.cabinet_takeover_backend),
+            "--rknn-model-dir",
+            str(self.args.cabinet_takeover_rknn_model_dir),
+            "--require-rknn",
+            "--camera-profile",
+            str(self.args.cabinet_takeover_camera_profile),
+            "--trigger-required-frames",
+            str(int(self.args.cabinet_takeover_confirm_frames)),
+            "--search-timeout-s",
+            f"{float(self.args.cabinet_takeover_search_timeout):.3f}",
+            "--adjust-timeout-s",
+            f"{float(self.args.cabinet_takeover_approach_timeout):.3f}",
+            "--target-inference-fps",
+            f"{float(self.args.cabinet_takeover_target_fps):.3f}",
+            "--min-inference-fps",
+            f"{float(self.args.cabinet_takeover_hard_min_fps):.3f}",
+            "--fps-hard-fail-hold-s",
+            f"{float(self.args.cabinet_takeover_hard_fail_hold):.3f}",
+            "--ros-ready-timeout-s",
+            f"{float(self.args.cabinet_takeover_ros_ready_timeout):.3f}",
+            "--nav-manager-status-topic",
+            "/maze_turn_manager/status",
+            "--nav-manager-cancel-service",
+            "/maze_turn_manager/cancel",
+            "--navigation-active-at-launch",
+        ]
+        target_labels = str(getattr(self.args, "cabinet_takeover_target_labels", "") or "").strip()
+        if target_labels:
+            cmd.extend(["--target-labels", target_labels])
+        return cmd
+
+    def start(self, ros_node: RosMirror | None = None) -> None:
+        if self._running():
+            return
+        if not self.script_path.exists():
+            self._write_status("failed", result={"message": f"cabinet takeover script not found: {self.script_path}"})
+            self._schedule_pre_takeover_retry()
+            return
+        now = now_s()
+        cooldown = max(1.0, float(getattr(self.args, "cabinet_takeover_restart_cooldown", 30.0)))
+        if self.last_start_at > 0.0 and now - self.last_start_at < cooldown:
+            return
+
+        CABINET_TAKEOVER_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_path = CABINET_TAKEOVER_LOG_DIR / f"takeover_{time.strftime('%Y%m%d_%H%M%S')}.log"
+        self._close_log()
+        self._log_handle = open(log_path, "ab", buffering=0)
+        env = os.environ.copy()
+        env["CAR_CLOUD_ALLOW_INSPECTION_WITH_ROS_MOTION"] = "1"
+        env["CAR_CLOUD_CABINET_INSPECTION_CMD_VEL_TOPIC"] = str(self.args.cabinet_takeover_cmd_vel_topic)
+        if bool(getattr(self.args, "cabinet_takeover_allow_uncalibrated", True)):
+            env["CAR_CLOUD_CABINET_TAKEOVER_ALLOW_UNCALIBRATED"] = "1"
+
+        self._write_status("starting", result={"message": "cabinet navigation takeover starting", "log_path": str(log_path)})
+        try:
+            self.process = subprocess.Popen(
+                self._build_command(),
+                cwd=str(ROOT_DIR),
+                env=env,
+                stdout=self._log_handle,
+                stderr=subprocess.STDOUT,
+            )
+        except Exception as exc:
+            self._close_log()
+            self.process = None
+            self.last_result = {"state": "failed", "message": str(exc)}
+            self._write_status("failed", result={"message": str(exc)})
+            self._schedule_pre_takeover_retry(now)
+            if ros_node is not None:
+                ros_node.note(f"cabinet takeover start failed: {exc}")
+            return
+
+        self.last_start_at = now
+        self.last_stop_reason = ""
+        if ros_node is not None:
+            ros_node.note(f"cabinet takeover monitor started pid={self.process.pid}")
+
+    def _collect_finished(self, ros_node: RosMirror | None = None) -> None:
+        if self.process is None:
+            return
+        returncode = self.process.poll()
+        if returncode is None:
+            return
+        status = self._read_status()
+        state = str(status.get("state") or ("completed" if returncode == 0 else "failed"))
+        if state not in CABINET_TAKEOVER_TERMINAL_STATES:
+            self._write_status(
+                "completed" if returncode == 0 else "failed",
+                result={"message": "cabinet takeover process exited", "returncode": int(returncode)},
+            )
+            status = self._read_status()
+            state = str(status.get("state") or state)
+        result = status.get("result") if isinstance(status.get("result"), dict) else {}
+        self._preserve_terminal_status(status, returncode=int(returncode))
+        if ros_node is not None:
+            ros_node.note(f"cabinet takeover exited state={state} rc={returncode}")
+        failure_phase = str(
+            status.get("failure_phase")
+            or result.get("failure_phase")
+            or ("post_takeover" if status.get("takeover_active") else "pre_takeover")
+        )
+        control_was_acquired = bool(
+            status.get("control_was_acquired")
+            or result.get("control_was_acquired")
+            or state in {"COMPLETE", "PARTIAL"}
+        )
+        if failure_phase == "post_takeover" or control_was_acquired:
+            self.blocked_for_navigation_session = True
+        elif returncode != 0 or state in {"FAILED", "failed"}:
+            self._schedule_pre_takeover_retry()
+        self.process = None
+        self._close_log()
+
+    def _retry_outbox(self, ros_node: RosMirror | None = None) -> None:
+        now = now_s()
+        if now - self.last_outbox_retry_at < 2.0:
+            return
+        self.last_outbox_retry_at = now
+        if not CABINET_TAKEOVER_OUTBOX_DIR.is_dir():
+            return
+        records = [
+            (path, load_json_file(path))
+            for path in CABINET_TAKEOVER_OUTBOX_DIR.glob("*.json")
+        ]
+        records.sort(
+            key=lambda item: (
+                0 if str(item[1].get("kind") or "") == "recognition" else 1,
+                item[0].name,
+            )
+        )
+        if not records:
+            self.outbox_last_error = ""
+            return
+
+        def upload_record(path: FilePath, record: dict[str, Any]) -> tuple[FilePath, str]:
+            kind = str(record.get("kind") or "")
+            if kind == "inspection":
+                payload = record.get("payload", {})
+                if not isinstance(payload, dict):
+                    raise RuntimeError("invalid inspection outbox payload")
+                response = requests.post(
+                    f"{str(self.args.server_url).rstrip('/')}/api/upload/inspection",
+                    headers={"X-Upload-Token": str(self.args.upload_token)},
+                    json=payload,
+                    timeout=30,
+                )
+            elif kind == "recognition":
+                paths = record.get("paths", {})
+                if not isinstance(paths, dict):
+                    raise RuntimeError("invalid recognition outbox paths")
+                raw_path = FilePath(str(paths.get("raw") or ""))
+                annotated_path = FilePath(str(paths.get("annotated") or ""))
+                payload_path = FilePath(str(paths.get("json") or ""))
+                if not raw_path.is_file() or not annotated_path.is_file() or not payload_path.is_file():
+                    raise RuntimeError("recognition outbox files are missing")
+                payload = load_json_file(payload_path)
+                payload_overrides = record.get("payload_overrides", {})
+                if isinstance(payload_overrides, dict):
+                    payload.update(payload_overrides)
+                inspection_id = str(record.get("inspection_id") or "").strip()
+                stage = str(record.get("stage") or "final").strip() or "final"
+                payload.update(
+                    {
+                        "inspection_id": inspection_id,
+                        "inspection_stage": stage,
+                        "capture_key": f"{inspection_id}:{stage}",
+                        "coverage": record.get("coverage", {}),
+                        "board_id": str(record.get("board_id") or self.args.board_id),
+                        "board_label": str(record.get("board_label") or self.args.board_label),
+                    }
+                )
+                with raw_path.open("rb") as raw_handle, annotated_path.open("rb") as annotated_handle:
+                    response = requests.post(
+                        f"{str(self.args.server_url).rstrip('/')}/api/upload/recognition",
+                        headers={"X-Upload-Token": str(self.args.upload_token)},
+                        data={"payload": json.dumps(payload, ensure_ascii=False)},
+                        files={
+                            "raw_image": (raw_path.name, raw_handle, "image/jpeg"),
+                            "annotated_image": (annotated_path.name, annotated_handle, "image/jpeg"),
+                        },
+                        timeout=45,
+                    )
+            else:
+                raise RuntimeError(f"unknown outbox kind: {kind or 'missing'}")
+            response.raise_for_status()
+            return path, kind
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="cabinet-outbox") as executor:
+            futures = [executor.submit(upload_record, path, record) for path, record in records[:2]]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    path, _kind = future.result()
+                    path.unlink()
+                    self.outbox_uploaded += 1
+                    self.outbox_last_error = ""
+                    if ros_node is not None:
+                        ros_node.note(f"cabinet outbox uploaded: {path.name}")
+                except Exception as exc:
+                    self.outbox_last_error = str(exc)
+
+    def stop(self, reason: str, ros_node: RosMirror | None = None) -> None:
+        if self.process is None:
+            return
+        status_before_stop = self._read_status()
+        post_takeover = bool(
+            status_before_stop.get("takeover_active")
+            or status_before_stop.get("control_was_acquired")
+            or str(status_before_stop.get("failure_phase") or "") == "post_takeover"
+        )
+        self.last_stop_reason = reason
+        if self.process.poll() is None:
+            with contextlib.suppress(Exception):
+                self.process.send_signal(signal.SIGINT)
+            try:
+                self.process.wait(timeout=6.0)
+            except Exception:
+                with contextlib.suppress(Exception):
+                    self.process.terminate()
+                with contextlib.suppress(Exception):
+                    self.process.wait(timeout=2.0)
+            if self.process.poll() is None:
+                with contextlib.suppress(Exception):
+                    self.process.kill()
+                with contextlib.suppress(Exception):
+                    self.process.wait(timeout=2.0)
+        returncode = self.process.returncode
+        terminal_status = {
+            **status_before_stop,
+            "state": "stopped",
+            "returncode": int(returncode) if returncode is not None else None,
+            "result": {"message": reason},
+            "updated_at": iso_from_timestamp(now_s()),
+        }
+        self._preserve_terminal_status(terminal_status, returncode=returncode)
+        self.process = None
+        self._close_log()
+        self._write_status("stopped", result={"message": reason})
+        if post_takeover:
+            self.blocked_for_navigation_session = True
+        if ros_node is not None:
+            ros_node.note(f"cabinet takeover stopped: {reason}")
+
+    def tick(
+        self,
+        *,
+        navigation_active: bool,
+        navigation_ready: bool,
+        navigation_session_id: str,
+        mapping_active: bool,
+        command_busy: bool,
+        ros_node: RosMirror | None = None,
+    ) -> dict[str, Any]:
+        self._collect_finished(ros_node)
+        self._retry_outbox(ros_node)
+        status = self._read_status()
+        clean_session_id = str(navigation_session_id or "").strip()
+        if navigation_active and clean_session_id and clean_session_id != self.navigation_session_id:
+            if self._running():
+                self.stop("navigation session changed before visual takeover", ros_node)
+            self._reset_session_state(clean_session_id)
+        if not self.enabled:
+            if self._running():
+                self.stop("cabinet navigation takeover disabled", ros_node)
+            return self.snapshot()
+
+        if command_busy:
+            if self._running():
+                self.stop("cloud command active", ros_node)
+            return self.snapshot()
+
+        if mapping_active:
+            if self._running():
+                self.stop("mapping active", ros_node)
+            return self.snapshot()
+
+        if navigation_active:
+            self.navigation_inactive_since = 0.0
+            if self._running():
+                return self.snapshot()
+            if (
+                navigation_ready
+                and not self.blocked_for_navigation_session
+                and not self.pre_takeover_retry_exhausted
+                and now_s() >= self.next_pre_takeover_retry_at
+            ):
+                self.start(ros_node)
+            return self.snapshot()
+
+        if self._running() and not self._active_after_nav_cancel(status):
+            current = now_s()
+            if self.navigation_inactive_since <= 0.0:
+                self.navigation_inactive_since = current
+            if current - self.navigation_inactive_since < 10.0:
+                return self.snapshot()
+            self.stop("navigation inactive before visual takeover", ros_node)
+
+        if not self._running():
+            self.navigation_inactive_since = 0.0
+            self._reset_session_state()
+            self._clear_terminal_status_if_idle(status)
+
+        return self.snapshot()
+
+    def snapshot(self) -> dict[str, Any]:
+        status = self._read_status()
+        state = str(status.get("state") or ("running" if self._running() else "disabled" if not self.enabled else "idle"))
+        target_seen_count = 0
+        try:
+            target_seen_count = int(status.get("target_seen_count", 0) or 0)
+        except Exception:
+            target_seen_count = 0
+        last_takeover_result = dict(self.last_result)
+        if not last_takeover_result and state in CABINET_TAKEOVER_TERMINAL_STATES:
+            last_takeover_result = dict(status)
+        return {
+            "enabled": bool(self.enabled),
+            "running": bool(self._running()),
+            "pid": int(self.process.pid) if self._running() and self.process is not None else int(status.get("pid", 0) or 0),
+            "state": state,
+            "takeover_active": bool(status.get("takeover_active")),
+            "target_seen_count": target_seen_count,
+            "lost_count": int(status.get("lost_count", 0) or 0),
+            "front_min": status.get("front_min"),
+            "capture_progress": status.get("capture_progress", {}) if isinstance(status.get("capture_progress"), dict) else {},
+            "inspection_id": str(status.get("inspection_id") or ""),
+            "last_detection": status.get("last_detection", {}) if isinstance(status.get("last_detection"), dict) else {},
+            "last_error": str(status.get("last_error") or ""),
+            "inference_fps": status.get("inference_fps", 0.0),
+            "inference_age_s": status.get("inference_age_s"),
+            "readiness": status.get("readiness", {}) if isinstance(status.get("readiness"), dict) else {},
+            "performance_state": str(status.get("performance_state") or ""),
+            "performance_warning": str(status.get("performance_warning") or ""),
+            "fps_target": status.get("fps_target", 5.0),
+            "fps_hard_min": status.get("fps_hard_min", 4.0),
+            "failure_phase": str(status.get("failure_phase") or ""),
+            "failure_stage": str(status.get("failure_stage") or ""),
+            "plane": status.get("plane", {}) if isinstance(status.get("plane"), dict) else {},
+            "last_cmd_vel": status.get("last_cmd_vel", {}) if isinstance(status.get("last_cmd_vel"), dict) else {},
+            "current_pwm": status.get("current_pwm", []) if isinstance(status.get("current_pwm"), list) else [],
+            "coverage": status.get("coverage", {}) if isinstance(status.get("coverage"), dict) else {},
+            "missing_items": status.get("missing_items", []) if isinstance(status.get("missing_items"), list) else [],
+            "blocked_for_navigation_session": bool(self.blocked_for_navigation_session),
+            "navigation_session_id": self.navigation_session_id,
+            "pre_takeover_retry_count": int(self.pre_takeover_retry_count),
+            "pre_takeover_retry_limit": int(self.args.cabinet_takeover_pre_retries),
+            "pre_takeover_retry_exhausted": bool(self.pre_takeover_retry_exhausted),
+            "next_pre_takeover_retry_in_s": round(
+                max(0.0, self.next_pre_takeover_retry_at - now_s()), 3
+            ),
+            "outbox_pending": len(list(CABINET_TAKEOVER_OUTBOX_DIR.glob("*.json")))
+            if CABINET_TAKEOVER_OUTBOX_DIR.is_dir()
+            else 0,
+            "outbox_uploaded": int(self.outbox_uploaded),
+            "outbox_last_error": self.outbox_last_error,
+            "last_takeover_result": last_takeover_result,
+            "last_stop_reason": self.last_stop_reason,
+            "status_file": str(self.status_file),
+            "last_status_file": str(self.last_status_file),
+            "updated_at": str(status.get("updated_at") or ""),
+        }
+
+
+def run_capture_recognition(params: dict[str, Any], ros_node: RosMirror) -> tuple[str, dict[str, Any]]:
+    script = ROOT_DIR / "ros2_tools" / "camera_yolo_detect.py"
+    if not script.exists():
+        return "failed", {"message": f"YOLO script not found: {script}"}
+
+    server_url = str(os.environ.get("CAR_CLOUD_SERVER_URL") or "").rstrip("/")
+    upload_token = str(os.environ.get("CAR_CLOUD_UPLOAD_TOKEN") or "")
+    board_id = str(os.environ.get("CAR_CLOUD_BOARD_ID") or "rk3588-f103-board")
+    board_label = str(os.environ.get("CAR_CLOUD_BOARD_LABEL") or "RK3588 F103 Board")
+    if not server_url:
+        return "failed", {"message": "missing CAR_CLOUD_SERVER_URL"}
+    if not upload_token:
+        return "failed", {"message": "missing CAR_CLOUD_UPLOAD_TOKEN"}
+
+    def param_float(name: str, default: float, low: float, high: float) -> float:
+        try:
+            value = float(params.get(name, default))
+        except Exception:
+            value = default
+        return max(low, min(high, value))
+
+    def param_int(name: str, default: int, low: int, high: int) -> int:
+        try:
+            value = int(params.get(name, default))
+        except Exception:
+            value = default
+        return max(low, min(high, value))
+
+    prefix = f"cloud_recognition_{time.strftime('%Y%m%d_%H%M%S')}"
+    device = str(params.get("device") or "/dev/video0")
+    conf = param_float("conf", 0.25, 0.01, 0.99)
+    width = param_int("width", 640, 160, 3840)
+    height = param_int("height", 480, 120, 2160)
+    fps = param_int("fps", 15, 1, 60)
+    shared_frame = Path(
+        os.environ.get(
+            "CAR_CLOUD_CAMERA_SHARED_FRAME",
+            "/run/user/1000/cabinet-camera/latest_raw.jpg",
+        )
+    )
+    shared_health = Path(
+        os.environ.get(
+            "CAR_CLOUD_CAMERA_SHARED_HEALTH",
+            "/run/user/1000/cabinet-camera/health.json",
+        )
+    )
+    shared_frame_fresh = False
+    shared_producer_running = False
+    shared_age_s: float | None = None
+    try:
+        health = json.loads(shared_health.read_text(encoding="utf-8"))
+        shared_producer_running = bool(health.get("running", False))
+        shared_age_s = max(0.0, time.time() - float(health.get("updated_at", 0.0)))
+        shared_frame_fresh = shared_frame.is_file() and shared_age_s <= 1.0
+    except Exception:
+        pass
+    if shared_producer_running and not shared_frame_fresh:
+        return "failed", {
+            "message": "cabinet camera stream is active but its shared frame is stale",
+            "shared_frame": str(shared_frame),
+            "shared_age_s": shared_age_s,
+        }
+
+    cmd = [
+        "python3",
+        str(script),
+        "--device",
+        device,
+        "--prefix",
+        prefix,
+        "--conf",
+        f"{conf:.3f}",
+        "--width",
+        str(width),
+        "--height",
+        str(height),
+        "--fps",
+        str(fps),
+        "--backend",
+        "auto",
+    ]
+    if shared_frame_fresh:
+        cmd.extend(["--source", str(shared_frame), "--rotate", "0"])
+    ros_node.note("recognition capture start")
+    try:
+        completed = subprocess.run(
+            cmd,
+            cwd=str(ROOT_DIR),
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        ros_node.note("recognition capture timeout")
+        return "failed", {
+            "message": "recognition capture timed out",
+            "stdout": clip_text(exc.stdout or ""),
+            "stderr": clip_text(exc.stderr or ""),
+        }
+    except Exception as exc:
+        ros_node.note("recognition capture exception")
+        return "failed", {"message": str(exc)}
+
+    if completed.returncode != 0:
+        ros_node.note("recognition capture failed")
+        return "failed", {
+            "message": "recognition capture failed",
+            "returncode": completed.returncode,
+            "stdout": clip_text(completed.stdout or ""),
+            "stderr": clip_text(completed.stderr or ""),
+        }
+
+    try:
+        result = json.loads(completed.stdout)
+    except Exception as exc:
+        return "failed", {
+            "message": f"recognition output is not JSON: {exc}",
+            "stdout": clip_text(completed.stdout or ""),
+            "stderr": clip_text(completed.stderr or ""),
+        }
+    if not isinstance(result, dict):
+        return "failed", {"message": "recognition output JSON is not an object"}
+
+    raw_path = FilePath(str(result.get("source_image") or ""))
+    annotated_path = FilePath(str(result.get("annotated_image") or ""))
+    if not raw_path.exists() or not annotated_path.exists():
+        return "failed", {
+            "message": "recognition image output missing",
+            "source_image": str(raw_path),
+            "annotated_image": str(annotated_path),
+        }
+
+    upload_payload = dict(result)
+    upload_payload["board_id"] = board_id
+    upload_payload["board_label"] = board_label
+    upload_payload["capture_key"] = prefix
+    upload_started = time.perf_counter()
+    upload_error: Exception | None = None
+    uploaded: dict[str, Any] = {}
+    http = requests.Session()
+    for attempt, delay_s in enumerate((0.0, 0.2, 0.5, 1.0), start=1):
+        if delay_s:
+            time.sleep(delay_s)
+        try:
+            with raw_path.open("rb") as raw_handle, annotated_path.open("rb") as annotated_handle:
+                response = http.post(
+                    f"{server_url}/api/upload/recognition",
+                    headers={"X-Upload-Token": upload_token},
+                    data={"payload": json.dumps(upload_payload, ensure_ascii=False)},
+                    files={
+                        "raw_image": (raw_path.name, raw_handle, "image/jpeg"),
+                        "annotated_image": (annotated_path.name, annotated_handle, "image/jpeg"),
+                    },
+                    timeout=30,
+                )
+            response.raise_for_status()
+            uploaded = response.json()
+            timings = result.setdefault("timings_ms", {})
+            if isinstance(timings, dict):
+                timings["upload"] = round((time.perf_counter() - upload_started) * 1000.0, 3)
+                timings["upload_attempts"] = attempt
+            upload_error = None
+            break
+        except Exception as exc:
+            upload_error = exc
+    http.close()
+    if upload_error is not None:
+        ros_node.note("recognition upload failed")
+        return "failed", {
+            "message": f"recognition upload failed: {upload_error}",
+            "detections": result.get("detections", []),
+            "source_image": str(raw_path),
+            "annotated_image": str(annotated_path),
+        }
+
+    ros_node.note("recognition capture uploaded")
+    return "completed", {
+        "message": "recognition capture uploaded",
+        "detections": result.get("detections", []),
+        "detection_count": len(result.get("detections", []) if isinstance(result.get("detections"), list) else []),
+        "inference_ms": result.get("inference_ms", ""),
+        "backend": result.get("backend", ""),
+        "recognition": uploaded.get("recognition", {}) if isinstance(uploaded, dict) else {},
+    }
+
+
+def run_cabinet_inspection(params: dict[str, Any], ros_node: RosMirror) -> tuple[str, dict[str, Any]]:
+    script = ROOT_DIR / "ros2_tools" / "cabinet_apriltag_inspection.py"
+    if not script.exists():
+        return "failed", {"message": f"cabinet inspection runner not found: {script}"}
+
+    server_url = str(os.environ.get("CAR_CLOUD_SERVER_URL") or "").rstrip("/")
+    upload_token = str(os.environ.get("CAR_CLOUD_UPLOAD_TOKEN") or "")
+    board_id = str(os.environ.get("CAR_CLOUD_BOARD_ID") or "rk3588-f103-board")
+    board_label = str(os.environ.get("CAR_CLOUD_BOARD_LABEL") or "RK3588 F103 Board")
+    if not server_url:
+        return "failed", {"message": "missing CAR_CLOUD_SERVER_URL"}
+    if not upload_token:
+        return "failed", {"message": "missing CAR_CLOUD_UPLOAD_TOKEN"}
+
+    profile_param = str(params.get("profile") or params.get("profile_name") or "fixed_scan").strip() or "fixed_scan"
+    if profile_param == "default":
+        profile_param = "fixed_scan"
+    profile_path = ROOT_DIR / "cabinet_inspection_profiles" / f"{FilePath(profile_param).stem}.yaml"
+    explicit_profile = str(params.get("profile_path") or "").strip()
+    if explicit_profile:
+        profile_path = FilePath(explicit_profile)
+
+    cmd = [
+        "python3",
+        str(script),
+        "--search-config",
+        str(ROOT_DIR / "config" / "arm_apriltag_s0_search.yaml"),
+        "--server-url",
+        server_url,
+        "--upload-token",
+        upload_token,
+        "--board-id",
+        board_id,
+        "--board-label",
+        board_label,
+        "--profile",
+        str(profile_path),
+        "--execute",
+        "--upload",
+    ]
+
+    timeout_s = 600
+    try:
+        timeout_s = max(60, min(1800, int(params.get("timeout_s", timeout_s) or timeout_s)))
+    except Exception:
+        timeout_s = 600
+
+    ros_node.note("cabinet inspection start")
+    try:
+        completed = subprocess.run(
+            cmd,
+            cwd=str(ROOT_DIR),
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        ros_node.note("cabinet inspection timeout")
+        return "failed", {
+            "message": "cabinet inspection timed out",
+            "stdout": clip_text(exc.stdout or ""),
+            "stderr": clip_text(exc.stderr or ""),
+        }
+    except Exception as exc:
+        ros_node.note("cabinet inspection exception")
+        return "failed", {"message": str(exc)}
+
+    try:
+        result = json.loads(completed.stdout)
+    except Exception as exc:
+        result = {
+            "message": f"cabinet inspection output is not JSON: {exc}",
+            "stdout": clip_text(completed.stdout or ""),
+            "stderr": clip_text(completed.stderr or ""),
+        }
+    if completed.returncode != 0:
+        ros_node.note("cabinet inspection failed")
+        if isinstance(result, dict):
+            result.setdefault("message", "cabinet inspection failed")
+            result.setdefault("stderr", clip_text(completed.stderr or ""))
+        return "failed", result if isinstance(result, dict) else {"message": "cabinet inspection failed"}
+
+    ros_node.note("cabinet inspection completed")
+    if isinstance(result, dict):
+        result.setdefault("message", "cabinet inspection completed")
+        return "completed", result
+    return "completed", {"message": "cabinet inspection completed"}
+
+
+def run_start_cabinet_inspection(params: dict[str, Any], ros_node: RosMirror) -> tuple[str, dict[str, Any]]:
+    if not CABINET_INSPECTION_JOB_SCRIPT.exists():
+        return "failed", {"message": f"cabinet inspection job runner not found: {CABINET_INSPECTION_JOB_SCRIPT}"}
+    inspection_id = str(params.get("inspection_id") or "").strip()
+    if not inspection_id:
+        return "failed", {"message": "inspection_id is required"}
+    try:
+        expected_tag_id = int(params.get("expected_apriltag_id"))
+    except (TypeError, ValueError):
+        return "failed", {"message": "expected_apriltag_id is required"}
+    if expected_tag_id not in {10, 11, 12, 13}:
+        return "failed", {"message": "expected_apriltag_id must be 10-13"}
+    try:
+        waypoint_index = int(params.get("waypoint_index", -1))
+    except (TypeError, ValueError):
+        waypoint_index = -1
+
+    cmd = [
+        "python3",
+        str(CABINET_INSPECTION_JOB_SCRIPT),
+        "start",
+        "--inspection-id",
+        inspection_id,
+        "--expected-tag-id",
+        str(expected_tag_id),
+        "--navigation-session-id",
+        str(params.get("navigation_session_id") or ""),
+        "--waypoint-index",
+        str(waypoint_index),
+        "--waypoint-label",
+        str(params.get("waypoint_label") or ""),
+        "--timeout-s",
+        str(max(60, min(1800, int(params.get("timeout_s", 900) or 900)))),
+    ]
+    ros_node.note(f"cabinet inspection job start: {inspection_id}")
+    completed = subprocess.run(
+        cmd,
+        cwd=str(ROOT_DIR),
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    try:
+        result = json.loads(completed.stdout)
+    except Exception:
+        result = {
+            "message": "cabinet inspection job output is not JSON",
+            "stdout": clip_text(completed.stdout or ""),
+            "stderr": clip_text(completed.stderr or ""),
+        }
+    if completed.returncode != 0:
+        if isinstance(result, dict):
+            result.setdefault("message", "failed to start cabinet inspection job")
+        return "failed", result if isinstance(result, dict) else {"message": "failed to start cabinet inspection job"}
+    if not isinstance(result, dict):
+        result = {"inspection_id": inspection_id}
+    result.setdefault("message", "cabinet inspection job accepted")
+    return "completed", result
+
+
+def run_live_preview_control(start: bool, params: dict[str, Any], ros_node: RosMirror) -> tuple[str, dict[str, Any]]:
+    path = "/test/start" if start else "/test/stop"
+    payload = {"timeout_s": max(5, min(120, int(params.get("timeout_s", 120) or 120)))}
+    try:
+        response = requests.post(
+            f"{VISION_STREAM_CONTROL_URL}{path}",
+            headers={"X-Control-Token": os.environ.get("CAR_CLOUD_UPLOAD_TOKEN", "car-cloud-upload")},
+            json=payload,
+            timeout=6,
+        )
+        body = response.json()
+        response.raise_for_status()
+    except Exception as exc:
+        return "failed", {"message": str(exc)}
+    ros_node.note("vision preview control updated")
+    return "completed", body if isinstance(body, dict) else {"ok": True}
+
+
+def run_navigation_route(
+    params: dict[str, Any],
+    env: dict[str, str],
+    nav_bridge: FilePath,
+    ros_node: RosMirror,
+) -> tuple[str, dict[str, Any]]:
+    map_name = str(params.get("map") or params.get("map_yaml") or params.get("map_name") or "").strip()
+    if not map_name:
+        return "failed", {"message": "请先选择导航地图"}
+    if pid_file_process_live(NAV_COMMAND_PID_PATH):
+        status = load_json_file(NAV_COMMAND_STATUS_PATH)
+        return "rejected", {
+            "message": "当前正在导航，不重复启动",
+            "current_goal": status.get("current_goal", {}),
+            "session_id": status.get("session_id", ""),
+        }
+    try:
+        clean_map = clean_map_stem(map_name)
+        yaml_path = resolve_saved_map_yaml(clean_map)
+    except Exception as exc:
+        return "failed", {"message": str(exc)}
+    stack_info = navigation_stack_process_info()
+    stack_was_live = bool(stack_info)
+    active_map = str(stack_info.get("map_name") or "")
+    if stack_was_live and active_map and active_map != clean_map:
+        return "rejected", {
+            "message": f"导航系统正在使用地图 {active_map}，请先停止导航后再切换到 {clean_map}",
+            "active_map": active_map,
+            "requested_map": clean_map,
+            "pid": stack_info.get("pid", 0),
+        }
+
+    raw_points = params.get("points")
+    raw_start = params.get("start_pose")
+    raw_start_provided = isinstance(raw_start, dict) and bool(raw_start)
+    requested_start_source = str(params.get("start_source") or "").strip()
+    requested_route_source = str(params.get("route_source") or params.get("source") or "temporary").strip()
+    route_source = (
+        requested_route_source
+        if requested_route_source in {"temporary", "saved_route", "current_pose_to_goal"}
+        else "temporary"
+    )
+    if isinstance(raw_points, list) and raw_points:
+        try:
+            points = [normalize_nav_pose(item, f"P{index}") for index, item in enumerate(raw_points, 1)]
+        except Exception as exc:
+            return "failed", {"message": f"临时路线点位无效：{exc}"}
+        start_pose = normalize_nav_pose(raw_start, "S") if raw_start_provided else {}
+        # The web UI includes resolved saved points in the request. Preserve
+        # their source so status does not mislabel them as a temporary route.
+        if requested_route_source not in {"saved_route", "current_pose_to_goal"}:
+            route_source = "temporary"
+    else:
+        try:
+            saved = load_required_nav_points(clean_map)
+        except Exception as exc:
+            return "failed", {"message": f"未设置临时终点，且地图没有保存路线：{exc}"}
+        points = saved["points"]
+        start_pose = saved["start_pose"]
+        route_source = "saved_route"
+
+    if not points:
+        return "failed", {"message": "请先设置临时终点或保存地图路线"}
+    inspection_route = any(point.get("kind") == "cabinet" for point in points)
+    map_initial_pose = read_map_initial_pose(yaml_path) if not stack_was_live else {}
+    start_pose, start_source, localization_initial_pose = resolve_route_start_context(
+        start_pose,
+        inspection_route=inspection_route,
+        stack_was_live=stack_was_live,
+        map_initial_pose=map_initial_pose,
+        requested_start_source=requested_start_source,
+        route_source=route_source,
+    )
+    loop_count = 1 if inspection_route else max(1, min(20, int(params.get("loop_count", 1) or 1)))
+    session_id = str(params.get("session_id") or f"nav-{int(time.time())}").strip()
+    task_meta = {
+        "session_id": session_id,
+        "map_name": clean_map,
+        "map_source": str(params.get("map_source") or "selected_map"),
+        "route_source": route_source,
+        "start_source": start_source,
+        "localization_initial_pose": localization_initial_pose,
+        "goal_refresh": {"enabled": False, "mode": "disabled"},
+        "auto_cabinet_inspection": inspection_route,
+    }
+
+    ros_node.note(f"route navigation start: {clean_map} source={route_source}")
+    navigation_cmd = ["bash", str(ROOT_DIR / "start_board_f103_navigation.sh"), clean_map]
+    if stack_was_live:
+        nav_completed = subprocess.CompletedProcess(
+            navigation_cmd,
+            0,
+            stdout=f"navigation stack already running: pid={stack_info.get('pid', 0)} map={active_map}\n",
+            stderr="",
+        )
+    else:
+        try:
+            nav_completed = subprocess.run(
+                navigation_cmd,
+                cwd=str(ROOT_DIR),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            return "failed", {"message": "启动导航系统超时", "stdout": clip_text(exc.stdout or ""), "stderr": clip_text(exc.stderr or "")}
+        if nav_completed.returncode != 0:
+            return "failed", {
+                "message": "启动导航系统失败",
+                "returncode": nav_completed.returncode,
+                "stdout": clip_text(nav_completed.stdout or ""),
+                "stderr": clip_text(nav_completed.stderr or ""),
+            }
+
+    ready_stack_info = navigation_stack_process_info()
+    ready, ready_error = wait_for_navigation_stack_ready(ready_stack_info)
+    if not ready:
+        return "failed", {
+            "message": "navigation stack is not ready; route goal was not sent",
+            "detail": ready_error,
+            "pid": ready_stack_info.get("pid", 0),
+            "stdout": clip_text(nav_completed.stdout or ""),
+            "stderr": clip_text(nav_completed.stderr or ""),
+        }
+
+    cruise_cmd = [
+        "python3",
+        str(nav_bridge),
+        "start-cruise",
+        "--points-json",
+        json.dumps(points, ensure_ascii=False),
+        "--loop-count",
+        str(loop_count),
+        "--start-pose-json",
+        json.dumps(start_pose, ensure_ascii=False),
+        "--task-json",
+        json.dumps(task_meta, ensure_ascii=False),
+    ]
+    try:
+        cruise_completed = subprocess.run(
+            cruise_cmd,
+            cwd=str(ROOT_DIR),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=40,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return "failed", {"message": "导航任务启动超时", "stdout": clip_text(exc.stdout or ""), "stderr": clip_text(exc.stderr or "")}
+    if cruise_completed.returncode != 0:
+        return "failed", {
+            "message": "导航任务启动失败",
+            "returncode": cruise_completed.returncode,
+            "stdout": clip_text(cruise_completed.stdout or ""),
+            "stderr": clip_text(cruise_completed.stderr or ""),
+        }
+    return "completed", {
+        "message": f"导航已启动：{clean_map}，路线来源：{route_source}",
+        "map": clean_map,
+        "route_source": route_source,
+        "start_pose": start_pose,
+        "localization_initial_pose": localization_initial_pose,
+        "points": points,
+        "point_count": len(points),
+        "session_id": session_id,
+        "stdout": clip_text((nav_completed.stdout or "") + "\n" + (cruise_completed.stdout or "")),
+        "stderr": clip_text((nav_completed.stderr or "") + "\n" + (cruise_completed.stderr or "")),
+    }
+
+
+def execute_whitelisted_command(command: dict[str, Any], ros_node: RosMirror) -> tuple[str, dict[str, Any]]:
+    action = str(command.get("action") or "").strip()
+    params = command.get("params", {}) if isinstance(command.get("params"), dict) else {}
+
+    env = os.environ.copy()
+    env["CAR2_SKIP_UPLOADER_STOP"] = "1"
+    nav_bridge = ROOT_DIR / "board_nav_command.py"
+
+    if action == "start_mapping":
+        mode = str(params.get("mode") or params.get("auto_mapping_mode") or "frontier").strip().lower()
+        if mode not in {"frontier", "forward", "manual"}:
+            return "failed", {"message": f"unsupported mapping mode: {mode}"}
+        ros_node.clear_navigation_cache_for_mapping()
+        cmd = ["bash", str(ROOT_DIR / "start_board_f103_mapping.sh"), mode]
+        timeout_s = 90
+    elif action == "stop_mapping":
+        env["CAR_CLOUD_STOP_REASON"] = "cloud_stop_mapping"
+        cmd = ["bash", str(ROOT_DIR / "stop_board_f103_mapping.sh")]
+        timeout_s = 120
+    elif action == "save_map":
+        map_name = str(params.get("name") or params.get("map_name") or params.get("map") or "").strip()
+        cmd = ["bash", str(ROOT_DIR / "ros2_tools" / "save_ros2_map.sh")]
+        if map_name:
+            cmd.append(map_name)
+        timeout_s = 180
+    elif action == "save_nav_points":
+        map_name = str(params.get("map") or params.get("map_yaml") or params.get("map_name") or "").strip()
+        try:
+            nav_points = save_nav_points_file(map_name, params.get("start_pose") or params.get("pose"), params.get("points"))
+        except Exception as exc:
+            return "failed", {"message": str(exc)}
+        return "completed", {
+            "message": f"地图路线已保存：{nav_points.get('map')}",
+            "map": nav_points.get("map", ""),
+            "path": nav_points.get("path", ""),
+            "point_count": len(nav_points.get("points", [])),
+            "nav_points": nav_points,
+        }
+    elif action == "save_map_initial_pose":
+        map_name = str(params.get("map") or params.get("map_yaml") or params.get("map_name") or "").strip()
+        try:
+            result = save_map_initial_pose(map_name, params.get("pose"))
+        except Exception as exc:
+            return "failed", {"message": str(exc)}
+        return "completed", {
+            "message": f"地图默认初始位姿已保存：{result['map']}，下次启动导航时生效",
+            **result,
+        }
+    elif action == "start_navigation":
+        map_name = str(params.get("map") or params.get("map_yaml") or params.get("map_name") or "").strip()
+        if not map_name:
+            return "failed", {"message": "missing navigation map"}
+        stack_info = navigation_stack_process_info()
+        navigation_stack_was_live = bool(stack_info)
+        if navigation_stack_was_live:
+            return "rejected", {
+                "message": "导航系统已经运行，不重复启动",
+                "active_map": stack_info.get("map_name", ""),
+                "requested_map": clean_map_stem(map_name),
+                "pid": stack_info.get("pid", 0),
+            }
+        cmd = ["bash", str(ROOT_DIR / "start_board_f103_navigation.sh"), map_name]
+        timeout_s = 300
+    elif action == "start_navigation_route":
+        return run_navigation_route(params, env, nav_bridge, ros_node)
+    elif action == "update_navigation_goal":
+        status = load_json_file(NAV_COMMAND_STATUS_PATH)
+        if not pid_file_process_live(NAV_COMMAND_PID_PATH) or not bool(status.get("task_running")):
+            return "rejected", {"message": "当前没有活动导航，无法更新终点"}
+        session_id = str(params.get("session_id") or "").strip()
+        active_session = str(status.get("session_id") or "").strip()
+        if not session_id or session_id != active_session:
+            return "rejected", {"message": "导航会话已经变化，请刷新页面后重试"}
+        if bool(status.get("auto_cabinet_inspection")):
+            return "rejected", {"message": "配电柜巡检路线运行期间不能在线替换终点，请先停止任务"}
+        active_map = clean_map_stem(status.get("map_name") or status.get("active_map") or "")
+        requested_map = clean_map_stem(params.get("map") or active_map)
+        if requested_map != active_map:
+            return "rejected", {"message": "新终点地图与当前导航地图不一致"}
+        try:
+            yaml_path = resolve_saved_map_yaml(active_map)
+            goal_pose = normalize_nav_pose(params.get("goal_pose"), "G")
+            if not saved_map_pose_in_bounds(yaml_path, goal_pose):
+                raise RuntimeError("new navigation goal is outside the saved map bounds")
+        except Exception as exc:
+            return "failed", {"message": str(exc)}
+        request_id = str(params.get("client_request_id") or command.get("id") or f"goal-{int(time.time() * 1000)}").strip()
+        cmd = [
+            "python3",
+            str(nav_bridge),
+            "replace-goal",
+            "--goal-json",
+            json.dumps(goal_pose, ensure_ascii=False),
+            "--session-id",
+            session_id,
+            "--map-name",
+            active_map,
+            "--request-id",
+            request_id,
+        ]
+        timeout_s = 10
+    elif action == "stop_navigation":
+        cmd = ["bash", str(ROOT_DIR / "stop_board_f103_navigation.sh")]
+        timeout_s = 120
+    elif action == "set_initial_pose":
+        pose = params.get("pose")
+        if not isinstance(pose, dict):
+            return "failed", {"message": "missing initial pose"}
+        cmd = ["python3", str(nav_bridge), "set-initialpose", "--pose-json", json.dumps(pose, ensure_ascii=False)]
+        timeout_s = 40
+    elif action == "start_cruise":
+        points = params.get("points")
+        if not isinstance(points, list) or not points:
+            return "failed", {"message": "missing cruise points"}
+        loop_count = max(1, int(params.get("loop_count", 1) or 1))
+        start_pose = params.get("start_pose", {})
+        map_name = str(params.get("map") or params.get("map_yaml") or params.get("map_name") or "").strip()
+        task_meta = {
+            "session_id": str(params.get("session_id") or f"nav-{int(time.time())}"),
+            "map_name": map_name,
+            "map_source": str(params.get("map_source") or "selected_map"),
+            "route_source": str(params.get("route_source") or "temporary"),
+            "start_source": "temporary" if start_pose else "current_pose",
+            "goal_refresh": {"enabled": False, "mode": "disabled"},
+            "auto_cabinet_inspection": any(
+                isinstance(point, dict) and str(point.get("kind") or "transit") == "cabinet"
+                for point in points
+            ),
+        }
+        cmd = [
+            "python3",
+            str(nav_bridge),
+            "start-cruise",
+            "--points-json",
+            json.dumps(points, ensure_ascii=False),
+            "--loop-count",
+            str(loop_count),
+            "--start-pose-json",
+            json.dumps(start_pose if isinstance(start_pose, dict) else {}, ensure_ascii=False),
+            "--task-json",
+            json.dumps(task_meta, ensure_ascii=False),
+        ]
+        timeout_s = 40
+    elif action == "stop_cruise":
+        cmd = ["python3", str(nav_bridge), "stop-cruise"]
+        timeout_s = 20
+    elif action == "capture_recognition":
+        return run_capture_recognition(params, ros_node)
+    elif action == "cabinet_inspection":
+        return run_cabinet_inspection(params, ros_node)
+    elif action == "start_cabinet_inspection":
+        return run_start_cabinet_inspection(params, ros_node)
+    elif action == "start_live_preview":
+        return run_live_preview_control(True, params, ros_node)
+    elif action == "stop_live_preview":
+        return run_live_preview_control(False, params, ros_node)
+    else:
+        return "rejected", {"message": f"unsupported action: {action}"}
+
+    ros_node.note(f"command start: {action}")
+    try:
+        if action in {"start_mapping", "stop_mapping", "start_navigation", "stop_navigation"} and nav_bridge.exists():
+            subprocess.run(
+                ["python3", str(nav_bridge), "stop-cruise"],
+                cwd=str(ROOT_DIR),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+        completed = subprocess.run(
+            cmd,
+            cwd=str(ROOT_DIR),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        append_command_audit(
+            command=command,
+            status="timeout",
+            cmd=cmd,
+            stdout=str(exc.stdout or ""),
+            stderr=str(exc.stderr or ""),
+            message=f"command timed out: {action}",
+        )
+        ros_node.note(f"command timeout: {action}")
+        return "failed", {
+            "message": f"command timed out: {action}",
+            "stdout": clip_text(exc.stdout or ""),
+            "stderr": clip_text(exc.stderr or ""),
+            "diagnostics": command_diagnostics(),
+        }
+    except Exception as exc:
+        append_command_audit(
+            command=command,
+            status="exception",
+            cmd=cmd,
+            message=str(exc),
+        )
+        ros_node.note(f"command exception: {action}")
+        return "failed", {"message": str(exc)}
+
+    if completed.returncode == 0:
+        initial_pose_message = ""
+        if action == "start_navigation" and not navigation_stack_was_live:
+            try:
+                initial_pose = read_map_initial_pose(resolve_saved_map_yaml(map_name))
+                if initial_pose:
+                    initial_completed = subprocess.run(
+                        ["python3", str(nav_bridge), "set-initialpose", "--pose-json", json.dumps(initial_pose, ensure_ascii=False)],
+                        cwd=str(ROOT_DIR),
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=20,
+                        check=False,
+                    )
+                    if initial_completed.returncode != 0:
+                        subprocess.run(
+                            ["bash", str(ROOT_DIR / "stop_board_f103_navigation.sh")],
+                            cwd=str(ROOT_DIR),
+                            env=env,
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
+                            check=False,
+                        )
+                        return "failed", {
+                            "message": "导航系统已启动，但地图默认初始位姿发布失败，已停止导航",
+                            "stderr": clip_text(initial_completed.stderr or ""),
+                        }
+                    initial_pose_message = "；已应用地图默认初始位姿"
+            except Exception as exc:
+                return "failed", {"message": f"读取地图默认初始位姿失败：{exc}"}
+        result_message = {
+            "stop_cruise": "路线已停止，导航系统保持就绪",
+            "stop_navigation": "导航系统已关闭",
+        }.get(action, f"command completed: {action}{initial_pose_message}")
+        append_command_audit(
+            command=command,
+            status="completed",
+            cmd=cmd,
+            returncode=completed.returncode,
+            stdout=completed.stdout or "",
+            stderr=completed.stderr or "",
+            message=result_message,
+        )
+        ros_node.note(f"command ok: {action}")
+        return "completed", {
+            "message": result_message,
+            "stdout": clip_text(completed.stdout or ""),
+            "stderr": clip_text(completed.stderr or ""),
+        }
+
+    append_command_audit(
+        command=command,
+        status="failed",
+        cmd=cmd,
+        returncode=completed.returncode,
+        stdout=completed.stdout or "",
+        stderr=completed.stderr or "",
+        message=f"command failed: {action}",
+    )
+    ros_node.note(f"command failed: {action}")
+    return "failed", {
+        "message": f"command failed: {action}",
+        "returncode": completed.returncode,
+        "stdout": clip_text(completed.stdout or ""),
+        "stderr": clip_text(completed.stderr or ""),
+        "diagnostics": command_diagnostics() if action in {"start_mapping", "save_map"} else {},
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Upload current board mapping/navigation data to the cloud platform server.")
+    parser.add_argument("--server-url", required=True, help="example: http://115.159.33.216:8765")
+    parser.add_argument("--upload-token", required=True, help="must match server CAR_CLOUD_UPLOAD_TOKEN")
+    parser.add_argument("--board-url", default="", help="optional local board web app URL, for example http://127.0.0.1:5000")
+    parser.add_argument("--board-id", default="rk3588-f103-board", help="board identifier shown in the cloud")
+    parser.add_argument("--board-label", default="RK3588 F103 Board", help="board label shown in the cloud")
+    parser.add_argument("--state-interval", type=float, default=1.0, help="seconds between state uploads")
+    parser.add_argument("--frame-interval", type=float, default=2.0, help="seconds between map/scan uploads")
+    parser.add_argument(
+        "--scan-render-interval",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_SCAN_RENDER_INTERVAL", "2.0") or "2.0"),
+        help="minimum seconds between LaserScan PNG renders",
+    )
+    parser.add_argument(
+        "--map-render-interval",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_MAP_RENDER_INTERVAL", "2.0") or "2.0"),
+        help="minimum seconds between map PNG renders",
+    )
+    parser.add_argument(
+        "--saved-map-scan-interval",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_SAVED_MAP_SCAN_INTERVAL", "5.0") or "5.0"),
+        help="minimum seconds between saved map directory scans",
+    )
+    parser.add_argument(
+        "--saved-map-preview-sync-interval",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_SAVED_MAP_PREVIEW_SYNC_INTERVAL", "30.0") or "30.0"),
+        help="minimum seconds between unchanged saved map preview sync passes",
+    )
+    parser.add_argument("--command-interval", type=float, default=0.1, help="seconds between remote command polls")
+    parser.add_argument("--teleop-interval", type=float, default=0.15, help="seconds between remote teleop polls")
+    parser.add_argument("--teleop-topic", default="/cmd_vel_cmd", help="ROS topic used for cloud keyboard teleop")
+    parser.add_argument("--enable-teleop", action="store_true", help="enable legacy cloud keyboard teleop publisher")
+    parser.add_argument(
+        "--enable-audio",
+        action="store_true",
+        default=bool_from_env(os.environ.get("CAR_CLOUD_AUDIO_ENABLED"), False),
+        help="enable USB microphone dBFS sampling",
+    )
+    parser.add_argument(
+        "--audio-device",
+        default=os.environ.get("CAR_CLOUD_AUDIO_DEVICE", "plughw:CARD=MIC,DEV=0"),
+        help="ALSA capture device used for dBFS sampling",
+    )
+    parser.add_argument(
+        "--audio-rate",
+        type=int,
+        default=int(os.environ.get("CAR_CLOUD_AUDIO_RATE", "16000") or "16000"),
+        help="audio sample rate used for dBFS sampling",
+    )
+    parser.add_argument(
+        "--audio-interval",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_AUDIO_INTERVAL", "2.0") or "2.0"),
+        help="seconds between dBFS samples",
+    )
+    parser.add_argument(
+        "--enable-ir-temperature",
+        action="store_true",
+        default=bool_from_env(os.environ.get("CAR_CLOUD_IR_TEMP_ENABLED"), False),
+        help="enable USB infrared temperature sampling",
+    )
+    parser.add_argument(
+        "--ir-temp-port",
+        default=os.environ.get("CAR_CLOUD_IR_TEMP_PORT", "/dev/serial/by-path/platform-fc800000.usb-usb-0:1.1:1.0-port0"),
+        help="USB serial port used by the infrared temperature module",
+    )
+    parser.add_argument(
+        "--ir-temp-interval",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_IR_TEMP_INTERVAL", "2.0") or "2.0"),
+        help="seconds between infrared temperature samples",
+    )
+    parser.add_argument(
+        "--ir-temp-timeout",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_IR_TEMP_TIMEOUT", "1.0") or "1.0"),
+        help="serial response timeout for the infrared temperature module",
+    )
+    parser.add_argument(
+        "--enable-cabinet-nav-takeover",
+        action="store_true",
+        default=bool_from_env(os.environ.get("CAR_CLOUD_CABINET_NAV_TAKEOVER_ENABLED"), True),
+        help="run the visual cabinet takeover monitor while Nav2 navigation is active",
+    )
+    parser.add_argument(
+        "--disable-cabinet-nav-takeover",
+        action="store_false",
+        dest="enable_cabinet_nav_takeover",
+        help="disable the visual cabinet takeover monitor",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-profile",
+        default=os.environ.get(
+            "CAR_CLOUD_CABINET_TAKEOVER_PROFILE",
+            str(ROOT_DIR / "cabinet_inspection_profiles" / "default.yaml"),
+        ),
+        help="cabinet inspection profile used after visual approach",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-status-file",
+        default=os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_STATUS_FILE", str(CABINET_TAKEOVER_STATUS_PATH)),
+        help="JSON status file written by the cabinet takeover subprocess",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-device",
+        default=os.environ.get(
+            "CAR_CLOUD_CABINET_TAKEOVER_DEVICE",
+            "/dev/v4l/by-id/usb-icSpring_icspring_camera_240929142408-video-index0",
+        ),
+        help="camera device used by the cabinet takeover preview detector",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-preview-width",
+        type=int,
+        default=int(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_PREVIEW_WIDTH", "1280") or "1280"),
+        help="preview detection capture width",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-preview-height",
+        type=int,
+        default=int(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_PREVIEW_HEIGHT", "720") or "720"),
+        help="preview detection capture height",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-fps",
+        type=int,
+        default=int(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_FPS", "15") or "15"),
+        help="preview camera FPS",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-rotate",
+        type=int,
+        choices=(0, 90, 180, 270),
+        default=int(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_ROTATE", "180") or "180"),
+        help="preview image rotation",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-conf",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_CONF", "0.25") or "0.25"),
+        help="YOLO confidence threshold for cabinet takeover preview and inspection",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-backend",
+        choices=("auto", "rknn", "onnxruntime", "opencv"),
+        default=os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_BACKEND", "rknn"),
+        help="YOLO inference backend for cabinet takeover preview",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-rknn-model-dir",
+        default=os.environ.get(
+            "CAR_CLOUD_CABINET_TAKEOVER_RKNN_MODEL_DIR",
+            str(ROOT_DIR / "yolo_models" / "rknn"),
+        ),
+        help="directory containing FP16 RKNN cabinet models",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-camera-profile",
+        default=os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_CAMERA_PROFILE", "normal"),
+        help="camera control profile used for preview detection",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-cmd-vel-topic",
+        default=os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_CMD_VEL_TOPIC", "/cmd_vel_cabinet"),
+        help="direct chassis command topic used after visual takeover",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-scan-topic",
+        default=os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_SCAN_TOPIC", "/scan"),
+        help="LaserScan topic used for visual approach front safety",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-confirm-frames",
+        type=int,
+        default=int(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_CONFIRM_FRAMES", "3") or "3"),
+        help="consecutive preview detections required before takeover",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-preview-interval",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_PREVIEW_INTERVAL", "1.2") or "1.2"),
+        help="seconds between low-rate preview detections",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-search-timeout",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_SEARCH_TIMEOUT", "3600.0") or "3600.0"),
+        help="maximum seconds spent scanning during one navigation session",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-approach-timeout",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_APPROACH_TIMEOUT", "90.0") or "90.0"),
+        help="maximum seconds for visual servo approach after takeover",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-inspection-timeout",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_INSPECTION_TIMEOUT", "1200.0") or "1200.0"),
+        help="maximum seconds for the three-stage inspection subprocess",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-restart-cooldown",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_RESTART_COOLDOWN", "10.0") or "10.0"),
+        help="minimum seconds before restarting a crashed takeover subprocess",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-pre-retries",
+        type=int,
+        default=int(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_PRE_RETRIES", "3") or "3"),
+        help="maximum monitor retries before chassis control is acquired",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-target-fps",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_TARGET_FPS", "5.0") or "5.0"),
+        help="target RKNN monitoring throughput; lower rates are reported as degraded",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-hard-min-fps",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_HARD_MIN_FPS", "4.0") or "4.0"),
+        help="sustained RKNN throughput below this value fails the monitor",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-hard-fail-hold",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_HARD_FAIL_HOLD", "5.0") or "5.0"),
+        help="seconds below the hard FPS minimum before failing",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-ros-ready-timeout",
+        type=float,
+        default=float(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_ROS_READY_TIMEOUT", "30.0") or "30.0"),
+        help="seconds to wait for scan, navigation status, arm and cabinet control interfaces",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-target-labels",
+        default=os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_TARGET_LABELS", ""),
+        help="comma-separated target labels that can trigger cabinet takeover",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-allow-uncalibrated",
+        action="store_true",
+        default=bool_from_env(os.environ.get("CAR_CLOUD_CABINET_TAKEOVER_ALLOW_UNCALIBRATED"), True),
+        help="allow running the current uncalibrated default cabinet inspection profile",
+    )
+    parser.add_argument(
+        "--cabinet-takeover-require-calibration",
+        action="store_false",
+        dest="cabinet_takeover_allow_uncalibrated",
+        help="require calibrated cabinet inspection profile before automatic takeover inspection",
+    )
+    args = parser.parse_args()
+
+    if rclpy is None:
+        raise RuntimeError("rclpy is unavailable; source the ROS 2 environment before starting the uploader")
+
+    os.environ["CAR_CLOUD_SERVER_URL"] = args.server_url.rstrip("/")
+    os.environ["CAR_CLOUD_UPLOAD_TOKEN"] = args.upload_token
+    os.environ["CAR_CLOUD_BOARD_ID"] = args.board_id
+    os.environ["CAR_CLOUD_BOARD_LABEL"] = args.board_label
+
+    session = requests.Session()
+    headers = {"X-Upload-Token": args.upload_token}
+    ros_context = Context()
+    rclpy.init(args=None, context=ros_context)
+    ros_node = RosMirror(context=ros_context, teleop_topic=args.teleop_topic, enable_teleop=args.enable_teleop)
+    ros_executor = SingleThreadedExecutor(context=ros_context)
+    ros_executor.add_node(ros_node)
+    audio_sampler = AudioLevelSampler(
+        device=args.audio_device,
+        sample_rate=args.audio_rate,
+        interval=args.audio_interval,
+        enabled=args.enable_audio,
+    )
+    ir_temp_sampler = InfraredTemperatureSampler(
+        port=args.ir_temp_port,
+        interval=args.ir_temp_interval,
+        timeout=args.ir_temp_timeout,
+        enabled=args.enable_ir_temperature,
+    )
+    cabinet_takeover = CabinetNavTakeoverManager(args)
+    audio_sampler.start()
+    ir_temp_sampler.start()
+    if audio_sampler.enabled:
+        print(
+            f"[uploader] audio sampler enabled device={audio_sampler.device} "
+            f"rate={audio_sampler.sample_rate} interval={audio_sampler.interval}",
+            flush=True,
+        )
+    else:
+        print("[uploader] audio sampler disabled", flush=True)
+    if ir_temp_sampler.enabled:
+        print(
+            f"[uploader] infrared temperature sampler enabled port={ir_temp_sampler.port} "
+            f"interval={ir_temp_sampler.interval} timeout={ir_temp_sampler.timeout}",
+            flush=True,
+        )
+    else:
+        print("[uploader] infrared temperature sampler disabled", flush=True)
+    if cabinet_takeover.enabled:
+        print(
+            f"[uploader] cabinet navigation takeover enabled device={args.cabinet_takeover_device} "
+            f"interval={args.cabinet_takeover_preview_interval}",
+            flush=True,
+        )
+    else:
+        print("[uploader] cabinet navigation takeover disabled", flush=True)
+
+    last_state_at = 0.0
+    last_frame_at = 0.0
+    last_command_at = 0.0
+    last_teleop_at = 0.0
+    last_teleop_success_at = 0.0
+    active_command: CommandRunner | None = None
+    pending_result_upload: dict[str, Any] | None = None
+    saved_map_preview_cache: dict[str, dict[str, Any]] = {}
+    saved_maps_cache: list[dict[str, Any]] = []
+    saved_map_items_cache: list[dict[str, Any]] = []
+    saved_map_items_cache_signature = ""
+    last_saved_maps_at = 0.0
+    last_saved_map_preview_sync_at = 0.0
+
+    try:
+        while True:
+            now = now_s()
+            ros_executor.spin_once(timeout_sec=0.01)
+            if args.enable_teleop and now - last_teleop_at >= max(0.05, float(args.teleop_interval)):
+                try:
+                    teleop_payload = request_json(
+                        session,
+                        "GET",
+                        f"{args.server_url.rstrip('/')}/api/board/teleop?board_id={args.board_id}",
+                        headers=headers,
+                        timeout=4,
+                    )
+                    teleop = teleop_payload.get("teleop", {})
+                    ros_node.set_cloud_teleop(teleop if isinstance(teleop, dict) else {})
+                    last_teleop_success_at = now
+                except Exception as exc:
+                    if last_teleop_success_at > 0 and (now - last_teleop_success_at) > 1.0:
+                        ros_node.set_cloud_teleop({})
+                    print(f"[uploader] teleop poll failed: {exc}", flush=True)
+                last_teleop_at = now
+            ros_node.pump_cloud_teleop()
+            state_due = now - last_state_at >= args.state_interval
+            frame_due = now - last_frame_at >= args.frame_interval
+            ros_snapshot = ros_node.cloud_snapshot() if (state_due or frame_due) else None
+
+            if state_due and now - last_saved_maps_at >= max(1.0, float(args.saved_map_scan_interval)):
+                saved_map_items_cache = list_saved_maps(MAP_DIR)
+                signature = saved_map_items_signature(saved_map_items_cache)
+                preview_sync_due = (
+                    signature != saved_map_items_cache_signature
+                    or now - last_saved_map_preview_sync_at >= max(5.0, float(args.saved_map_preview_sync_interval))
+                )
+                if preview_sync_due:
+                    saved_maps_cache = sync_saved_map_previews(
+                        session=session,
+                        server_url=args.server_url,
+                        headers=headers,
+                        cache=saved_map_preview_cache,
+                        items=saved_map_items_cache,
+                    )
+                    last_saved_map_preview_sync_at = now
+                else:
+                    saved_maps_cache = attach_saved_map_preview_cache(saved_map_items_cache, saved_map_preview_cache)
+                saved_map_items_cache_signature = signature
+                last_saved_maps_at = now
+
+            if state_due and ros_snapshot is not None:
+                board_status = {"source": "ros_topics"}
+                board_ros_status: dict[str, Any] = {}
+                board_nav_status: dict[str, Any] = {}
+                board_logs: list[str] = []
+
+                if args.board_url:
+                    board_status = safe_get_json(session, f"{args.board_url}/api/status") or board_status
+                    board_ros_status = safe_get_json(session, f"{args.board_url}/api/ros/status")
+                    board_nav_status = safe_get_json(session, f"{args.board_url}/api/nav/status")
+                    board_logs = list(safe_get_json(session, f"{args.board_url}/api/logs").get("logs", []))
+
+                cruise_status = load_json_file(NAV_COMMAND_STATUS_PATH)
+                navigation_stack_info = navigation_stack_process_info()
+                navigation_stack_live = bool(navigation_stack_info)
+                navigation_stack_map = optional_clean_map_stem(navigation_stack_info.get("map_name"))
+                navigation_stack_pid = int(navigation_stack_info.get("pid", 0) or 0)
+                ros_status = dict(ros_snapshot["ros_status"])
+                ros_status.update({key: value for key, value in board_ros_status.items() if value not in (None, "", [], {})})
+                ros_status["navigation_stack_live"] = navigation_stack_live
+                ros_status["navigation_stack_map"] = navigation_stack_map
+                ros_status["navigation_stack_pid"] = navigation_stack_pid
+
+                nav_status = dict(ros_snapshot["nav_status"])
+                nav_status.update({key: value for key, value in board_nav_status.items() if value not in (None, "", [], {})})
+                nav_status["action_server_ready"] = bool(
+                    ros_snapshot["nav_status"].get("action_server_ready")
+                    or board_nav_status.get("action_server_ready")
+                )
+                ros_navigation_active = bool(
+                    nav_status.get("task_running") or nav_status.get("goal_active")
+                )
+                cruise_active = bool(
+                    cruise_status.get("task_running") or cruise_status.get("goal_active")
+                )
+                historical_map = optional_clean_map_stem(
+                    cruise_status.get("map_name") or cruise_status.get("active_map") or ""
+                )
+                nav_status["navigation_stack_live"] = navigation_stack_live
+                nav_status["navigation_stack_map"] = navigation_stack_map
+                nav_status["navigation_stack_pid"] = navigation_stack_pid
+                nav_status["last_map_name"] = historical_map
+                use_cruise_status = cruise_status_should_override(
+                    cruise_status,
+                    ros_navigation_active=ros_navigation_active,
+                )
+                if use_cruise_status:
+                    cruise_mode = str(cruise_status.get("mode") or "").strip()
+                    if cruise_mode:
+                        nav_status["web_cruise_mode"] = cruise_mode
+                    for key in (
+                        "state",
+                        "task_phase",
+                        "session_id",
+                        "map_name",
+                        "map_source",
+                        "route_source",
+                        "start_source",
+                        "start_pose",
+                        "goal_pose",
+                        "last_goal",
+                        "goal_refresh",
+                        "goal_refresh_count",
+                        "goal_refresh_suppressed",
+                        "goal_refresh_suppress_distance_m",
+                        "goal_refresh_suppress_delay_s",
+                        "goal_refresh_final_send_pending",
+                        "final_heading_state",
+                        "final_heading_delay_s",
+                        "final_heading_error_deg",
+                        "final_heading_target_deg",
+                        "last_goal_refresh_at",
+                        "no_progress_since",
+                        "last_progress_at",
+                        "distance_remaining",
+                        "goal_revision",
+                        "goal_replacement_count",
+                        "previous_goal",
+                        "last_goal_replaced_at",
+                        "goal_update_state",
+                    ):
+                        if key in cruise_status:
+                            nav_status[key] = cruise_status.get(key)
+                    if "task_running" in cruise_status:
+                        nav_status["task_running"] = bool(cruise_status.get("task_running"))
+                    if "goal_active" in cruise_status:
+                        nav_status["goal_active"] = bool(cruise_status.get("goal_active"))
+                    nav_status["current_goal"] = (
+                        cruise_status.get("current_goal", {})
+                        if isinstance(cruise_status.get("current_goal"), dict)
+                        else {}
+                    )
+                    if cruise_status.get("last_result"):
+                        nav_status["last_result"] = cruise_status.get("last_result", "")
+                    if cruise_status.get("last_error"):
+                        nav_status["last_error"] = cruise_status.get("last_error", "")
+                    if cruise_status.get("state"):
+                        nav_status["nav_state"] = cruise_status.get("state")
+                    nav_status["active_task"] = {
+                        "task_name": "web_cruise",
+                        "mode": cruise_mode or "web_cruise",
+                        "loop_count": int(cruise_status.get("loop_count", 1) or 1),
+                        "current_loop": int(cruise_status.get("loop_index", 0) or 0),
+                    } if bool(cruise_status.get("task_running")) else {}
+
+                requested_map = optional_clean_map_stem(
+                    nav_status.get("requested_map_name")
+                    or (cruise_status.get("map_name") if cruise_active else "")
+                    or (cruise_status.get("active_map") if cruise_active else "")
+                    or ""
+                )
+                nav_status["requested_map_name"] = requested_map
+                if navigation_stack_live and navigation_stack_map:
+                    nav_status["map_name"] = navigation_stack_map
+                    nav_status["active_map"] = navigation_stack_map
+                nav_status["map_mismatch"] = bool(
+                    navigation_stack_live
+                    and navigation_stack_map
+                    and requested_map
+                    and navigation_stack_map != requested_map
+                )
+
+                effective_cruise_status = cruise_status if use_cruise_status else {}
+                goal_pose = (
+                    cruise_status.get("current_goal", {})
+                    if cruise_active and isinstance(cruise_status.get("current_goal"), dict)
+                    else {}
+                )
+                mapping_status = build_mapping_status_payload(ros_status)
+                navigation_status = build_navigation_status_payload(
+                    nav_status,
+                    effective_cruise_status,
+                    ros_snapshot["nav_path"],
+                    goal_pose,
+                )
+
+                cabinet_takeover_status = cabinet_takeover.tick(
+                    navigation_active=ros_navigation_active,
+                    navigation_ready=bool(
+                        navigation_status.get("action_server_ready")
+                    ),
+                    navigation_session_id=str(
+                        ros_snapshot["nav_status"].get("session_id")
+                        or ""
+                    ),
+                    mapping_active=bool(ros_status.get("navigation_mode") == "mapping"),
+                    command_busy=bool(active_command is not None),
+                    ros_node=ros_node,
+                )
+                nav_status["cabinet_takeover_state"] = cabinet_takeover_status.get("state", "")
+                nav_status["target_seen_count"] = cabinet_takeover_status.get("target_seen_count", 0)
+                nav_status["takeover_active"] = bool(cabinet_takeover_status.get("takeover_active"))
+                nav_status["capture_progress"] = cabinet_takeover_status.get("capture_progress", {})
+                nav_status["last_takeover_result"] = cabinet_takeover_status.get("last_takeover_result", {})
+                if cabinet_takeover_status.get("takeover_active"):
+                    nav_status["nav_state"] = "visual_inspection_takeover"
+                    nav_status["last_error"] = ""
+                    navigation_status["state"] = "visual_inspection_takeover"
+                    navigation_status["active"] = True
+                    navigation_status["display_reason"] = "cabinet visual inspection takeover"
+
+                audio_level = audio_sampler.snapshot()
+                ir_temperature_health = ir_temp_sampler.snapshot()
+                ir_temperature_metric = ir_temp_sampler.cabinet_metric_snapshot()
+                cabinet_environment = {
+                    "sound_level": audio_level,
+                }
+                cabinet_update_times = [str(audio_level.get("captured_at") or "")]
+                if ir_temperature_metric:
+                    cabinet_environment["infrared_temperature"] = ir_temperature_metric
+                    cabinet_update_times.append(str(ir_temperature_metric.get("captured_at") or ""))
+                cabinet_telemetry = {
+                    "environment": cabinet_environment,
+                    "updated_at": max((item for item in cabinet_update_times if item), default=""),
+                }
+                raw_vision_stream_status = safe_get_json(
+                    session,
+                    VISION_STREAM_STATUS_URL,
+                    timeout=0.5,
+                )
+                vision_stream_status = {
+                    key: raw_vision_stream_status.get(key)
+                    for key in (
+                        "ok",
+                        "active",
+                        "paused",
+                        "mode",
+                        "session_id",
+                        "stage",
+                        "frame_age_s",
+                        "detection_age_s",
+                        "fps",
+                        "fps_target",
+                        "width",
+                        "height",
+                        "clients",
+                        "max_clients",
+                    )
+                    if key in raw_vision_stream_status
+                }
+                vision_stream_status.setdefault("ok", False)
+                vision_stream_status.setdefault("active", False)
+                payload = {
+                    "board_id": args.board_id,
+                    "board_label": args.board_label,
+                    "board": {
+                        "saved_maps": saved_maps_cache,
+                        "cruise_status": cruise_status,
+                    },
+                    "status": board_status,
+                    "ros_status": ros_status,
+                    "nav_status": nav_status,
+                    "mapping_status": mapping_status,
+                    "navigation_status": navigation_status,
+                    "telemetry": {
+                        "teleop": ros_node.teleop_snapshot(),
+                        "ir_temperature": ir_temperature_health,
+                        "cabinet_nav_takeover": cabinet_takeover_status,
+                        "cabinet_data": cabinet_telemetry,
+                        "vision_stream": vision_stream_status,
+                    },
+                    "logs": merged_logs(ros_snapshot["logs"], board_logs),
+                    "map_meta": ros_snapshot["map_meta"],
+                    "nav_path": {
+                        **ros_snapshot["nav_path"],
+                        "active": bool(
+                            navigation_status.get("task_running")
+                            and navigation_status.get("route_ready")
+                            and not navigation_status.get("map_mismatch")
+                        ),
+                        "fresh": bool(ros_snapshot["nav_path"].get("captured_at")),
+                    },
+                    "robot_pose": ros_snapshot["robot_pose"],
+                    "goal_pose": goal_pose,
+                }
+                try:
+                    response = session.post(
+                        f"{args.server_url.rstrip('/')}/api/upload/state",
+                        headers=headers,
+                        json=payload,
+                        timeout=8,
+                    )
+                    response.raise_for_status()
+                    print(
+                        f"[uploader] state ok mode={ros_status.get('navigation_mode')} "
+                        f"map={int(bool(ros_status.get('map_fresh')))} "
+                        f"scan={int(bool(ros_status.get('scan_fresh')))} "
+                        f"ir={ir_temperature_health.get('status')}",
+                        flush=True,
+                    )
+                except Exception as exc:
+                    print(f"[uploader] state upload failed: {exc}", flush=True)
+                last_state_at = now
+
+            if frame_due and ros_snapshot is not None:
+                files: dict[str, tuple[str, bytes, str]] = {}
+                ros_status_for_frame = dict(ros_snapshot["ros_status"])
+                mapping_process_live = bool(ros_status_for_frame.get("mapping_process_live"))
+                mapping_frame_live = bool(
+                    ros_status_for_frame.get("mapping_live")
+                    or ros_status_for_frame.get("mapping_stream_live")
+                    or ros_status_for_frame.get("mapping_graph_live")
+                )
+                rendered_frames = ros_node.render_frames(
+                    map_render_interval=float(args.map_render_interval),
+                    scan_render_interval=float(args.scan_render_interval),
+                    include_scan=mapping_frame_live,
+                )
+                map_frame = rendered_frames["map_frame"]
+                scan_frame = rendered_frames["scan_frame"] if mapping_frame_live else None
+
+                if map_frame is None and args.board_url:
+                    map_frame = safe_capture_frame(f"{args.board_url}/stream/lidar_map.mjpg")
+                if mapping_frame_live and scan_frame is None and args.board_url:
+                    scan_frame = safe_capture_frame(f"{args.board_url}/stream/lidar_scan.mjpg")
+
+                if map_frame:
+                    files["map_frame"] = ("map.png", map_frame, "image/png")
+                if scan_frame:
+                    files["scan_frame"] = ("scan.png", scan_frame, "image/png")
+
+                if files:
+                    try:
+                        response = session.post(
+                            f"{args.server_url.rstrip('/')}/api/upload/snapshot",
+                            headers=headers,
+                            data={"payload": json.dumps({"board_id": args.board_id, "board_label": args.board_label})},
+                            files=files,
+                            timeout=12,
+                        )
+                        response.raise_for_status()
+                        print(
+                            f"[uploader] frame ok map={int('map_frame' in files)} scan={int('scan_frame' in files)} "
+                            f"mproc={int(mapping_process_live)} mgraph={int(bool(ros_status_for_frame.get('mapping_graph_live')))}",
+                            flush=True,
+                        )
+                    except Exception as exc:
+                        print(f"[uploader] frame upload failed: {exc}", flush=True)
+                last_frame_at = now
+
+            if active_command is not None:
+                expired = active_command.expired_snapshot(command_watchdog_timeout_s(active_command.action))
+                if expired is not None and pending_result_upload is None:
+                    pending_result_upload = expired
+                    ros_node.note(f"command watchdog expired: {expired['action']}")
+                    print(
+                        f"[uploader] command {expired['action']} watchdog expired",
+                        flush=True,
+                    )
+                snapshot = active_command.snapshot()
+                if not snapshot["done"] and not snapshot["running_uploaded"]:
+                    try:
+                        request_json(
+                            session,
+                            "POST",
+                            f"{args.server_url.rstrip('/')}/api/board/commands/{snapshot['command_id']}/result",
+                            headers=headers,
+                            json_payload={
+                                "board_id": args.board_id,
+                                "status": "running",
+                                "result": {
+                                    "message": f"command running: {snapshot['action']}",
+                                    "timings_ms": {
+                                        "command_wait": snapshot.get("command_wait_ms", 0.0),
+                                        "command_claim": snapshot.get("command_wait_ms", 0.0),
+                                    },
+                                },
+                            },
+                            timeout=20,
+                        )
+                        active_command.mark_running_uploaded()
+                        print(f"[uploader] command {snapshot['action']} -> running", flush=True)
+                    except Exception as exc:
+                        print(f"[uploader] command running upload failed: {exc}", flush=True)
+
+                if snapshot["done"] and pending_result_upload is None:
+                    pending_result_upload = snapshot
+
+            if pending_result_upload is not None:
+                try:
+                    request_json(
+                        session,
+                        "POST",
+                        f"{args.server_url.rstrip('/')}/api/board/commands/{pending_result_upload['command_id']}/result",
+                        headers=headers,
+                        json_payload={
+                            "board_id": args.board_id,
+                            "status": pending_result_upload["status"],
+                            "result": pending_result_upload["result"],
+                        },
+                        timeout=20,
+                    )
+                    print(
+                        f"[uploader] command {pending_result_upload['action']} -> {pending_result_upload['status']}",
+                        flush=True,
+                    )
+                    pending_result_upload = None
+                    active_command = None
+                except Exception as exc:
+                    print(f"[uploader] command result upload failed: {exc}", flush=True)
+
+            if active_command is None and now - last_command_at >= args.command_interval:
+                try:
+                    command_payload = request_json(
+                        session,
+                        "GET",
+                        f"{args.server_url.rstrip('/')}/api/board/commands/next?board_id={args.board_id}",
+                        headers=headers,
+                        timeout=8,
+                    )
+                    command = command_payload.get("command")
+                    if isinstance(command, dict) and command.get("id"):
+                        action = str(command.get("action") or "")
+                        ros_node.note(f"command claimed: {action}")
+                        cabinet_takeover.stop(f"cloud command claimed: {action}", ros_node)
+                        active_command = CommandRunner(command, ros_node)
+                        active_command.start()
+                except Exception as exc:
+                    print(f"[uploader] command poll failed: {exc}", flush=True)
+                last_command_at = now
+
+            time.sleep(0.02)
+    finally:
+        with contextlib.suppress(Exception):
+            cabinet_takeover.stop("uploader shutting down", ros_node)
+        with contextlib.suppress(Exception):
+            audio_sampler.stop()
+        with contextlib.suppress(Exception):
+            ir_temp_sampler.stop()
+        with contextlib.suppress(Exception):
+            ros_executor.remove_node(ros_node)
+        with contextlib.suppress(Exception):
+            ros_node.destroy_node()
+        with contextlib.suppress(Exception):
+            if ros_context.ok():
+                rclpy.shutdown(context=ros_context)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

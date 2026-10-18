@@ -1,0 +1,112 @@
+# Unified configuration file for chassis_controller package
+# This file contains all parameters for different nodes and modes
+
+# Parameters for chassis_controller nodes (keyboard_teleop, odometry_subscriber)
+chassis_controller:
+  ros__parameters:
+    # Odometry subscriber parameters
+    odom_topic: "/odom"
+    verbose: true
+
+    # Keyboard teleop parameters
+    # Note: Publishes to /cmd_vel_cmd which goes through obstacle_avoidance node
+    cmd_vel_topic: "/cmd_vel_cmd"  # Changed: publish to obstacle_avoidance input
+    # 注意：速度限制参数现在从统一的配置文件读取
+    # Velocity limits are now loaded from unified config: rt_robot_nav2/config/velocity_limits.yaml
+    # 下面的值作为fallback，实际使用时应从统一配置加载
+    linear_velocity_step: 0.1      # Step size for linear velocity changes (m/s)
+    angular_velocity_step: 0.1     # Step size for angular velocity changes (rad/s)
+    max_linear_x: 0.3              # Maximum linear velocity in X (m/s) - See velocity_limits.yaml
+    max_linear_y: 0.3              # Maximum linear velocity in Y (m/s) - See velocity_limits.yaml
+    max_angular_z: 0.5             # Maximum angular velocity in Z (rad/s) - See velocity_limits.yaml
+
+# Parameters for odom_fusion node
+# Mode can be "slam" or "navigation"
+# - "slam": Use SLAM map->odom for fusion (for SLAM mode)
+# - "navigation": Disable SLAM fusion to avoid feedback loop with AMCL (for navigation mode)
+odom_fusion:
+  ros__parameters:
+    imu_topic: /imu/data
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_footprint  # Standard ROS convention: base_footprint at ground level
+    
+    # Mode selection: "slam" for SLAM mode, "navigation" for navigation mode
+    # This parameter should be set via launch file or parameter override
+    # Default is "navigation" - can be overridden in launch files
+    mode: navigation  # "slam" for SLAM mode (use SLAM map->odom for fusion), "navigation" for navigation mode (disable SLAM fusion to avoid feedback loop)
+    
+    publish_tf: true
+    publish_initial_tf: true
+    publish_rate: 50.0
+    
+    # Fusion weights - these are mode-dependent
+    # For SLAM mode: rely more on SLAM for yaw (SLAM provides long-term stability)
+    # For navigation mode: rely more on IMU for yaw
+    imu_yaw_weight: 0.7      # Weight for IMU yaw (0-1), used in navigation mode
+    slam_yaw_weight: 0.7     # Weight for SLAM yaw (0-1), used in SLAM mode
+    imu_position_weight: 0.0  # IMU doesn't provide position
+    slam_position_weight: 1.0  # SLAM provides position
+
+    # REVERTED to original stable values
+    # The previous aggressive filtering (0.02) caused TF lag and drift
+    # The previous strict yaw rate (1.0-1.5) rejected valid rotations
+    yaw_low_pass_alpha: 0.15  # RESTORED: Original value for balanced filtering (0.1 = 10% new data)
+                              # Provides good noise rejection while maintaining responsiveness
+    max_yaw_rate: 12.0        # INCREASED: From 8.0 to 12.0 rad/s to support faster rotations
+                              # Prevents false rejections during rapid goal alignment
+                              # Normal rotation: 0.3-0.5 rad/s, Fast: 1.0-2.0 rad/s, Goal alignment: up to 8 rad/s
+                              # Extreme outliers (> 12 rad/s) will still be rejected
+    
+    # 编码器里程计开关与话题（保留用于未来实现）
+    use_encoder_odom: false
+    encoder_odom_topic: /encoder/odom
+
+    # 速度积分里程计（从cmd_vel积分得到位置）
+    # 如果启用，odom_fusion将订阅/cmd_vel话题，通过速度积分计算位置
+    # 位置 = 位置 + (速度 * cos(yaw) - 速度 * sin(yaw)) * dt
+    # 注意：订阅的是obstacle_avoidance的输出（/cmd_vel），这样可以反映实际运动
+    # 如果obstacle_avoidance阻止了命令，odom不会积分，位置保持不变
+    use_velocity_integration: true  # 启用速度积分（默认启用）
+    cmd_vel_topic: /cmd_vel  # 命令速度话题（obstacle_avoidance的输出）
+
+# 避障节点参数（最高优先级安全机制）
+# Architecture: cmd_vel_cmd -> obstacle_avoidance -> cmd_vel
+# - Input: Nav2 controller and keyboard_teleop publish to /cmd_vel_cmd
+# - Output: obstacle_avoidance publishes to /cmd_vel (to chassis/micro-ROS)
+# - When obstacle detected: obstacle_avoidance publishes stop command to /cmd_vel
+# - When no obstacle: obstacle_avoidance forwards commands from /cmd_vel_cmd to /cmd_vel
+obstacle_avoidance:
+  ros__parameters:
+    # 话题配置
+    scan_topic: /scan  # 激光雷达扫描话题
+    cmd_vel_input_topic: /cmd_vel_cmd  # 输入话题（来自Nav2或键盘控制）
+    cmd_vel_output_topic: /cmd_vel  # 输出话题（到底盘或micro-ROS）
+    base_frame: base_footprint  # 机器人基座坐标系
+    laser_frame: laser  # 激光雷达坐标系
+
+    # 障碍物检测参数
+    safety_distance: 0.3  # 最小安全距离（米）- 绝对禁止进入的距离
+    detection_range: 1.0  # 检测范围（米）- 在此范围内检测障碍物
+    detection_angle: 1.047  # 检测角度（弧度，约60度）- 机器人前方的检测扇形角度
+    stop_distance: 0.5  # 停止距离（米）- 检测到障碍物在此距离内时触发停止
+
+    # 控制参数
+    check_rate: 20.0  # 检查频率（Hz）- 障碍物检测的频率
+    enable_in_navigation: true  # 在导航模式下启用
+    enable_in_slam: true  # 在SLAM模式下启用
+
+    # 导航集成
+    bt_navigator_action: navigate_to_pose  # Nav2行为树导航动作名称
+    trigger_replan_on_obstacle: true  # 检测到障碍物时触发重新规划（导航模式）
+
+# 导航目标停止发布器参数（确保导航完成后小车完全停止）
+# 功能：监听导航action状态，当目标到达时立即发送停止指令
+# 注意：在导航模式下obstacle_avoidance被禁用，所以直接发布到/cmd_vel
+goal_stop_publisher:
+  ros__parameters:
+    cmd_vel_topic: /cmd_vel  # 停止指令发送到此话题（导航模式下直接发送到底盘）
+    stop_duration: 0.5  # 发送停止指令的持续时间（秒）
+    stop_repeats: 3  # 重复发送停止指令的次数（确保底盘接收到）
+    min_goal_duration: 2.0  # 只有目标执行时间>=此值时才发送停止指令（避免误触发）
+

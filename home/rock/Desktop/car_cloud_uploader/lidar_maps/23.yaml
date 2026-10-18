@@ -1,0 +1,19 @@
+image: 23.pgm
+mode: trinary
+resolution: 0.0500000007451
+origin:
+- -3.23638023821
+- -4.35327746795
+- 0
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25
+rt_robot_initial_pose:
+  x: 0.0
+  y: 0.0
+  yaw: 0.0
+initial_pose:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  yaw: 0.0

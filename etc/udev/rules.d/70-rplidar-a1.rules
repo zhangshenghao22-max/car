@@ -1,0 +1,1 @@
+SUBSYSTEM=="tty", KERNELS=="7-1.4", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="laser", MODE="0666", GROUP="dialout"

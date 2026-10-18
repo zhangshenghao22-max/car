@@ -1,0 +1,24 @@
+[Unit]
+Description=Cabinet camera undistortion, AprilTag, switch RKNN and coordinate overlay
+After=display-manager.service network-online.target f103-usb-chassis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rock
+WorkingDirectory=/home/rock/Desktop/car_cloud_uploader
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/run/user/1000/gdm/Xauthority
+Environment=ROS_DOMAIN_ID=17
+Environment=ROS_LOCALHOST_ONLY=1
+Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/home/rock/Desktop/rock_ws/fastdds_no_shm.xml
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/bash /home/rock/Desktop/car_cloud_uploader/start_cabinet_camera_overlay.sh
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target

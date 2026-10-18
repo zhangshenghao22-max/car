@@ -1,0 +1,18 @@
+[Unit]
+Description=Car vision stream gateway
+After=network-online.target car-recognition-worker.service
+Wants=network-online.target car-recognition-worker.service
+
+[Service]
+Type=simple
+User=rock
+WorkingDirectory=/home/rock/Desktop/car_cloud_uploader
+Environment=CAR_CLOUD_UPLOAD_TOKEN=car-cloud-upload
+Environment=CAR_CLOUD_UPLOADER_ROOT=/home/rock/Desktop/car_cloud_uploader
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/bash -lc 'source /opt/ros/foxy/setup.bash && exec /usr/bin/python3 /home/rock/Desktop/car_cloud_uploader/vision_stream_gateway.py'
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

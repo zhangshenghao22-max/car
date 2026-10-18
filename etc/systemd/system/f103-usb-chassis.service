@@ -1,0 +1,32 @@
+# /etc/systemd/system/f103-usb-chassis.service
+[Unit]
+Description=F103 USB chassis bridge for /cmd_vel and /odom
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rock
+WorkingDirectory=/home/rock/Desktop/rt_direct_tools
+Environment=F103_PORT=/dev/serial/by-path/platform-fc8c0000.usb-usb-0:1:1.0-port0
+Environment=F103_BAUD=115200
+Environment=ROS_SETUP=/opt/ros/foxy/setup.bash
+Environment=ROS_WS_SETUP=/home/rock/Desktop/rock_ws/ros_ws/install/setup.bash
+Environment=CMD_TOPIC=/cmd_vel
+Environment=EXTRA_CMD_TOPIC=/cmd_vel_cmd
+Environment=ODOM_TOPIC=/odom_raw
+Environment=STATE_TOPIC=/f103_state
+Environment=ROS_LOCALHOST_ONLY=1
+Environment=ROS_DOMAIN_ID=17
+Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/home/rock/Desktop/rock_ws/fastdds_no_shm.xml
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/bash -lc 'set +u; source "$ROS_SETUP"; [ -f "$ROS_WS_SETUP" ] && source "$ROS_WS_SETUP"; set -u; exec python3 /home/rock/Desktop/rt_direct_tools/ros2_tools/f103_usb_ros2_bridge.py --port "$F103_PORT" --baudrate "$F103_BAUD" --cmd-topic "$CMD_TOPIC" --extra-cmd-topic "$EXTRA_CMD_TOPIC" --mapping-cmd-topic /cmd_vel_mapping --odom-topic "$ODOM_TOPIC" --state-topic "$STATE_TOPIC" --arm-topic /arm_cmd --max-linear-mm-s 300 --max-angular-mrad-s 280 --max-moving-angular-mrad-s 100 --mapping-max-angular-mrad-s 500 --mapping-max-moving-angular-mrad-s 500 --cmd-vx-sign 1 --cmd-wz-sign -1 --cmd-angular-scale 1.0 --cmd-wz-trim-per-vx 0.0 --cmd-output-mode dcr --cmd-wheel-signs 1,1,1,1 --inplace-wheel-min-mm-s 45,45,45,45 --mapping-inplace-wheel-min-mm-s 30,30,30,30 --cmd-timeout 1.0 --dcr-change-threshold-mm-s 10 --dcr-max-update-hz 3 --dcr-max-stale-sec 0 --startup-feedback-mm-s 2 --startup-feedback-frames 2 --startup-boost-wheel-mm-s 45 --startup-boost-duration-sec 2.50 --inplace-startup-boost-wheel-mm-s 75 --inplace-startup-boost-duration-sec 1.2 --mapping-inplace-startup-boost-wheel-mm-s 45 --mapping-inplace-startup-boost-duration-sec 0.45 --inplace-startup-feedback-mm-s 5 --inplace-startup-feedback-frames 3 --inplace-startup-balance-ratio 0.35 --inplace-reverse-confirm-sec 0.8 --startup-retry-period 1.2 --startup-retry-max 1 --startup-retry-zero-sec 0.15 --dcr-direction-blank-sec 0.08 --status-period 0.05 --odom-vx-sign 1 --odom-linear-scale 1.71 --odom-angular-scale 2.356484 --odom-wz-sign -1 --odom-wheel-signs 1,1,-1,-1'
+ExecStop=/bin/bash -lc 'set +u; source /opt/ros/foxy/setup.bash; [ -f /home/rock/Desktop/rock_ws/ros_ws/install/setup.bash ] && source /home/rock/Desktop/rock_ws/ros_ws/install/setup.bash; set -u; timeout 2 ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}" || true'
+Restart=always
+RestartSec=3
+StandardOutput=append:/home/rock/Desktop/rt_direct_tools/logs/f103_usb_bridge_systemd.log
+StandardError=append:/home/rock/Desktop/rt_direct_tools/logs/f103_usb_bridge_systemd.log
+
+[Install]
+WantedBy=multi-user.target

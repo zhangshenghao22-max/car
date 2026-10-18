@@ -1,0 +1,19 @@
+image: ceshi3.pgm
+mode: trinary
+resolution: 0.0500000007451
+origin:
+- -0.0321324986303
+- -1.68140423425
+- 0
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25
+rt_robot_initial_pose:
+  x: 1.8108860824336424
+  y: -0.44350816742295784
+  yaw: -2.694613519616634
+initial_pose:
+  x: 1.8108860824336424
+  y: -0.44350816742295784
+  z: 0.0
+  yaw: -2.694613519616634

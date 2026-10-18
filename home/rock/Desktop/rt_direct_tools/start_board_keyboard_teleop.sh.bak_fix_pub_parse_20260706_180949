@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+set -e
+
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VENV_DIR="$ROOT_DIR/.venv"
+PYTHON_BIN="python3"
+ROS_SETUP="/opt/ros/foxy/setup.bash"
+ROS_WS_SETUP="$HOME/Desktop/rock_ws/ros_ws/install/setup.bash"
+
+if [ -x "$VENV_DIR/bin/python" ]; then
+  PYTHON_BIN="$VENV_DIR/bin/python"
+fi
+
+if [ -f "$ROS_SETUP" ]; then
+  . "$ROS_SETUP" >/dev/null 2>&1 || true
+fi
+if [ -f "$ROS_WS_SETUP" ]; then
+  . "$ROS_WS_SETUP" >/dev/null 2>&1 || true
+fi
+
+export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-1}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-17}"
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
+if [ -z "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" ] && [ -f "$HOME/Desktop/rock_ws/fastdds_no_shm.xml" ]; then
+  export FASTRTPS_DEFAULT_PROFILES_FILE="$HOME/Desktop/rock_ws/fastdds_no_shm.xml"
+fi
+export PYTHONUNBUFFERED=1
+
+cd "$ROOT_DIR"
+
+log() {
+  printf '[keyboard] %s\n' "$*" >&2
+}
+
+warn() {
+  printf '[keyboard][WARN] %s\n' "$*" >&2
+}
+
+probe_topic() {
+  local topic="$1"
+  if ! command -v ros2 >/dev/null 2>&1; then
+    return 0
+  fi
+  ros2 topic info "${topic}" -v 2>/dev/null || true
+}
+
+extract_count() {
+  local label="$1"
+  awk -v label="${label}" '$0 ~ label {print $3; exit}'
+}
+
+# Older helper commands used --wait-subscriber, but board_keyboard_teleop.py
+# does not need or accept it. Keep the wrapper backward-compatible.
+FILTERED_ARGS=()
+CMD_VEL_TOPIC="/cmd_vel"
+PUBLISH_MODE="hold"
+HOLD_RATE_HZ="30"
+QOS_RELIABILITY="${KEYBOARD_QOS_RELIABILITY:-best_effort}"
+REQUIRE_EXCLUSIVE="0"
+EXPLICIT_HOLD_RATE="0"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --require-exclusive)
+      REQUIRE_EXCLUSIVE="1"
+      shift
+      ;;
+    --cmd-vel-topic)
+      FILTERED_ARGS+=("$1")
+      shift
+      if [ "$#" -gt 0 ]; then
+        CMD_VEL_TOPIC="$1"
+        FILTERED_ARGS+=("$1")
+        shift
+      fi
+      ;;
+    --cmd-vel-topic=*)
+      CMD_VEL_TOPIC="${1#*=}"
+      FILTERED_ARGS+=("$1")
+      shift
+      ;;
+    --publish-mode)
+      FILTERED_ARGS+=("$1")
+      shift
+      if [ "$#" -gt 0 ]; then
+        PUBLISH_MODE="$1"
+        FILTERED_ARGS+=("$1")
+        shift
+      fi
+      ;;
+    --publish-mode=*)
+      PUBLISH_MODE="${1#*=}"
+      FILTERED_ARGS+=("$1")
+      shift
+      ;;
+    --hold-rate-hz)
+      FILTERED_ARGS+=("$1")
+      shift
+      if [ "$#" -gt 0 ]; then
+        HOLD_RATE_HZ="$1"
+        EXPLICIT_HOLD_RATE="1"
+        FILTERED_ARGS+=("$1")
+        shift
+      fi
+      ;;
+    --hold-rate-hz=*)
+      HOLD_RATE_HZ="${1#*=}"
+      EXPLICIT_HOLD_RATE="1"
+      FILTERED_ARGS+=("$1")
+      shift
+      ;;
+    --qos-reliability)
+      FILTERED_ARGS+=("$1")
+      shift
+      if [ "$#" -gt 0 ]; then
+        QOS_RELIABILITY="$1"
+        FILTERED_ARGS+=("$1")
+        shift
+      fi
+      ;;
+    --qos-reliability=*)
+      QOS_RELIABILITY="${1#*=}"
+      FILTERED_ARGS+=("$1")
+      shift
+      ;;
+    --wait-subscriber)
+      shift
+      [ "$#" -gt 0 ] && shift
+      ;;
+    --wait-subscriber=*)
+      shift
+      ;;
+    *)
+      FILTERED_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [ "${EXPLICIT_HOLD_RATE}" = "0" ]; then
+  FILTERED_ARGS+=(--hold-rate-hz "${HOLD_RATE_HZ}")
+fi
+
+if awk "BEGIN {exit !(${HOLD_RATE_HZ} > 30.0)}"; then
+  warn "当前 hold-rate-hz=${HOLD_RATE_HZ}，建议手动调试使用 30Hz 或更低，避免无意义高频发布。"
+fi
+
+TOPIC_INFO="$(probe_topic "${CMD_VEL_TOPIC}")"
+PUB_COUNT="$(printf '%s\n' "${TOPIC_INFO}" | extract_count 'Publisher count:')"
+SUB_COUNT="$(printf '%s\n' "${TOPIC_INFO}" | extract_count 'Subscription count:')"
+PUB_COUNT="${PUB_COUNT:-0}"
+SUB_COUNT="${SUB_COUNT:-0}"
+PUBLISHER_NODES="$(printf '%s\n' "${TOPIC_INFO}" | awk '
+  /Endpoint type: PUBLISHER/ {in_publisher=1; next}
+  in_publisher && /Node name:/ {print $3; in_publisher=0}
+')"
+ACTIVE_PUBLISHER_NODES="$(printf '%s\n' "${PUBLISHER_NODES}" | grep -Ev '^(_ros2cli_[0-9]+)?$' || true)"
+
+CONFLICT_NODES=""
+if command -v ros2 >/dev/null 2>&1; then
+  CONFLICT_NODES="$(ros2 node list 2>/dev/null | grep -E '^/(frontier_explorer|controller_server|velocity_smoother|keyboard_teleop)$' || true)"
+fi
+
+log "发布话题: ${CMD_VEL_TOPIC}"
+log "发布模式: ${PUBLISH_MODE}, hold-rate-hz: ${HOLD_RATE_HZ}, qos: ${QOS_RELIABILITY}"
+log "当前 ${CMD_VEL_TOPIC} publisher=${PUB_COUNT}, subscriber=${SUB_COUNT}"
+if [ -n "${PUBLISHER_NODES}" ]; then
+  log "当前 ${CMD_VEL_TOPIC} publisher 节点: $(printf '%s' "${PUBLISHER_NODES}" | paste -sd ', ' -)"
+fi
+
+if [ -n "${CONFLICT_NODES}" ]; then
+  warn "检测到可能抢控制的节点:"
+  printf '%s\n' "${CONFLICT_NODES}" >&2
+  warn "独占手动控车前建议停止自动建图/导航，或使用 --require-exclusive 直接阻止启动。"
+fi
+if [ -n "${ACTIVE_PUBLISHER_NODES}" ]; then
+  warn "${CMD_VEL_TOPIC} 当前已有真实 publisher，键盘命令可能被覆盖:"
+  printf '%s\n' "${ACTIVE_PUBLISHER_NODES}" >&2
+elif [ "${PUB_COUNT}" != "0" ]; then
+  warn "${CMD_VEL_TOPIC} 只有 _ros2cli_* 残留 publisher，通常是一次性零速度命令的 DDS 残留，本次不视为控制冲突。"
+fi
+if [ "${SUB_COUNT}" = "0" ]; then
+  warn "${CMD_VEL_TOPIC} 当前没有可见订阅者，F103 bridge 可能未运行或 ROS 图未刷新。"
+fi
+if [ "${REQUIRE_EXCLUSIVE}" = "1" ] && { [ -n "${CONFLICT_NODES}" ] || [ -n "${ACTIVE_PUBLISHER_NODES}" ]; }; then
+  warn "require-exclusive 已启用，检测到控制冲突，退出。"
+  exit 2
+fi
+
+exec "$PYTHON_BIN" "$ROOT_DIR/board_keyboard_teleop.py" \
+  --qos-reliability "${QOS_RELIABILITY}" \
+  "${FILTERED_ARGS[@]}"

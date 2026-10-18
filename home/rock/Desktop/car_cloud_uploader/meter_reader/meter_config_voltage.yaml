@@ -1,0 +1,10 @@
+min_value: 0.0
+max_value: 450.0
+center:
+- 447.0
+- 696.0
+zero_angle: 128.88782932763866
+full_angle: 41.94625281292427
+canonical_size: 1024
+rectify_mode: auto
+template_path: templates/voltage_reference_1024.jpg

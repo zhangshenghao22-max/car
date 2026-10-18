@@ -1,0 +1,19 @@
+image: cloud_map_20260717_112630.pgm
+mode: trinary
+resolution: 0.0500000007451
+origin:
+- -4.60806184565
+- -0.247586990907
+- 0
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25
+rt_robot_initial_pose:
+  x: -2.4540648994034266
+  y: 0.5013803972924776
+  yaw: -0.04660296619558376
+initial_pose:
+  x: -2.4540648994034266
+  y: 0.5013803972924776
+  z: 0.0
+  yaw: -0.04660296619558376

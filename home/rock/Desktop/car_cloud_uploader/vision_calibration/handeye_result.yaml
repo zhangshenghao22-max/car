@@ -1,0 +1,361 @@
+schema_version: 2
+mode: eye_in_hand
+kinematic_model: arm5_camera_before_s4_v2
+camera_mount_frame: camera_mount_before_s4
+frame_equation: T_base_target = T_base_camera_mount * T_camera_mount_camera * T_camera_target
+accepted: false
+acceptance_reasons:
+- 训练平移中位误差 11.61mm 不小于 5.00mm
+- 验证样本不足 2/5
+method: DANIILIDIS
+sample_count: 34
+rejected_samples:
+- sample_20260715_213610_694.json
+- sample_20260716_002749_626.json
+- sample_20260716_002815_880.json
+- sample_20260716_002830_254.json
+- sample_20260715_213506_745.json
+- sample_20260715_213528_474.json
+- sample_20260715_213552_103.json
+- sample_20260715_213600_092.json
+- sample_20260715_214942_760.json
+T_camera_mount_camera:
+  matrix:
+  - - -0.999980411288944
+    - 0.0040251431382173205
+    - 0.004793251621939833
+    - 8.545676134182013
+  - - 0.005827320193693635
+    - 0.3191843140021622
+    - 0.9476747416884811
+    - -88.33483020890844
+  - - 0.0022845957529806452
+    - 0.947684109773761
+    - -0.3192015173907533
+    - -50.33657335880596
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+  translation_mm:
+  - 8.545676134182013
+  - -88.33483020890844
+  - -50.33657335880596
+  quaternion_xyzw:
+  - 0.003032824576497717
+  - 0.8121524245303124
+  - 0.5834369245891171
+  - 0.0007722244597157992
+  rpy_deg:
+  - 108.61469328469971
+  - -0.13089780840698995
+  - 179.66611638602234
+T_camera_camera_mount:
+  matrix:
+  - - -0.999980411288944
+    - 0.005827320193693635
+    - 0.0022845957529806452
+    - 9.17526279699944
+  - - 0.0040251431382173205
+    - 0.3191843140021622
+    - 0.947684109773761
+    - 75.86386532567663
+  - - 0.004793251621939833
+    - 0.9476747416884811
+    - -0.3192015173907533
+    - 67.60421522795059
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+  translation_mm:
+  - 9.17526279699944
+  - 75.86386532567663
+  - 67.60421522795059
+  quaternion_xyzw:
+  - 0.003032824576497717
+  - 0.8121524245303124
+  - 0.5834369245891171
+  - -0.0007722244597157992
+  rpy_deg:
+  - 108.6148646190877
+  - -0.2746341397200798
+  - 179.7693730141001
+T_base_target_reference:
+  matrix:
+  - - 0.9990255113239781
+    - -0.009546826116517785
+    - -0.0430915981946016
+    - -86.69210370741206
+  - - -0.04292088640560361
+    - 0.017417789465655656
+    - -0.9989266330017874
+    - -438.6837390173621
+  - - 0.010287139253518832
+    - 0.9998027199008969
+    - 0.016991057787778846
+    - 68.90984087668974
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+  translation_mm:
+  - -86.69210370741206
+  - -438.6837390173621
+  - 68.90984087668974
+  quaternion_xyzw:
+  - 0.7008239194103153
+  - -0.01871643899022047
+  - -0.01170210449176912
+  - 0.7129926995729712
+  rpy_deg:
+  - 89.02638572871173
+  - -0.5894200587209908
+  - -2.460071575920944
+training_metrics:
+  median_translation_mm: 11.606954885663296
+  std_translation_mm: 7.275576765986395
+  max_translation_mm: 30.629076334943726
+  median_rotation_deg: 1.8958019848272172
+  std_rotation_deg: 1.0190748540816614
+  max_rotation_deg: 4.492956677297128
+validation_metrics:
+  median_translation_mm: 18.520558864416827
+  median_rotation_deg: 2.518869249968209
+  median_reprojection_error_px: 0.5083566904514756
+method_comparison:
+- method: DANIILIDIS
+  selection_score: 21.085964809799382
+  median_translation_mm: 11.606954885663296
+  median_rotation_deg: 1.8958019848272172
+- method: HORAUD
+  selection_score: 23.726865060363693
+  median_translation_mm: 14.106757041990823
+  median_rotation_deg: 1.924021603674574
+- method: PARK
+  selection_score: 23.733695015706896
+  median_translation_mm: 14.112747402326242
+  median_rotation_deg: 1.924189522676131
+- method: ANDREFF
+  selection_score: 28.819739183233317
+  median_translation_mm: 17.700683936355887
+  median_rotation_deg: 2.2238110493754863
+- method: TSAI
+  selection_score: 168.29848929820366
+  median_translation_mm: 115.11677196599305
+  median_rotation_deg: 10.636343466442122
+training_residuals:
+- sample: sample_20260715_213230_905.json
+  translation_mm: 9.398103508500311
+  rotation_deg: 1.6643196201898427
+  reprojection_error_px: 0.5678411650715117
+  combined_score: 17.719701609449523
+- sample: sample_20260715_213237_179.json
+  translation_mm: 7.376497333786819
+  rotation_deg: 1.8119678688253527
+  reprojection_error_px: 0.5002640332337175
+  combined_score: 16.43633667791358
+- sample: sample_20260715_213411_870.json
+  translation_mm: 29.299046321502633
+  rotation_deg: 3.5034978054039
+  reprojection_error_px: 0.6776088912701246
+  combined_score: 46.81653534852214
+- sample: sample_20260715_213420_333.json
+  translation_mm: 26.957137647949356
+  rotation_deg: 2.936159186053462
+  reprojection_error_px: 0.5676086672187945
+  combined_score: 41.63793357821667
+- sample: sample_20260715_213432_512.json
+  translation_mm: 9.23201228558189
+  rotation_deg: 1.3361063394929984
+  reprojection_error_px: 0.5156537734618354
+  combined_score: 15.91254398304688
+- sample: sample_20260715_213441_754.json
+  translation_mm: 10.330919845780938
+  rotation_deg: 2.558248420993057
+  reprojection_error_px: 0.595472504536661
+  combined_score: 23.122161950746225
+- sample: sample_20260715_213517_514.json
+  translation_mm: 24.86968434964209
+  rotation_deg: 4.048168785353546
+  reprojection_error_px: 0.39758631900661917
+  combined_score: 45.11052827640982
+- sample: sample_20260715_213639_738.json
+  translation_mm: 12.356246853534998
+  rotation_deg: 1.281767122719236
+  reprojection_error_px: 0.4412555532839418
+  combined_score: 18.76508246713118
+- sample: sample_20260715_213650_009.json
+  translation_mm: 8.200430153896198
+  rotation_deg: 1.711422043286499
+  reprojection_error_px: 0.34597410522419386
+  combined_score: 16.75754037032869
+- sample: sample_20260715_213713_915.json
+  translation_mm: 26.199921401934436
+  rotation_deg: 2.700907611627159
+  reprojection_error_px: 0.4604949235969649
+  combined_score: 39.70445946007023
+- sample: sample_20260715_213729_905.json
+  translation_mm: 19.082925590276034
+  rotation_deg: 2.532333041045798
+  reprojection_error_px: 0.37915793655248653
+  combined_score: 31.744590795505022
+- sample: sample_20260715_213746_034.json
+  translation_mm: 24.312050664193805
+  rotation_deg: 2.396136576082154
+  reprojection_error_px: 0.2678084637401144
+  combined_score: 36.29273354460457
+- sample: sample_20260715_213819_770.json
+  translation_mm: 6.733151461024519
+  rotation_deg: 1.0059286002685366
+  reprojection_error_px: 0.410206525028617
+  combined_score: 11.762794462367202
+- sample: sample_20260715_213825_259.json
+  translation_mm: 11.917933320891997
+  rotation_deg: 1.5679133558038612
+  reprojection_error_px: 0.42555361833248506
+  combined_score: 19.757500099911304
+- sample: sample_20260715_213834_619.json
+  translation_mm: 10.453776834634295
+  rotation_deg: 2.0017109309343186
+  reprojection_error_px: 0.42584076380055824
+  combined_score: 20.46233148930589
+- sample: sample_20260715_213852_420.json
+  translation_mm: 8.880521526460972
+  rotation_deg: 1.6298235564148456
+  reprojection_error_px: 0.4927793497888073
+  combined_score: 17.029639308535202
+- sample: sample_20260715_213905_849.json
+  translation_mm: 15.186362110848657
+  rotation_deg: 2.2491710929908275
+  reprojection_error_px: 0.4430383802407487
+  combined_score: 26.432217575802795
+- sample: sample_20260715_213916_379.json
+  translation_mm: 9.577438247807638
+  rotation_deg: 1.2848063930324995
+  reprojection_error_px: 0.5688097597622715
+  combined_score: 16.001470212970137
+- sample: sample_20260715_213921_354.json
+  translation_mm: 8.075019401949822
+  rotation_deg: 1.5128674318440707
+  reprojection_error_px: 0.5458754446651957
+  combined_score: 15.639356561170175
+- sample: sample_20260715_213930_138.json
+  translation_mm: 13.687088430078282
+  rotation_deg: 1.23332854613834
+  reprojection_error_px: 0.4572283240550283
+  combined_score: 19.853731160769982
+- sample: sample_20260715_214018_217.json
+  translation_mm: 11.295976450434594
+  rotation_deg: 1.898014413882706
+  reprojection_error_px: 0.5695351862380521
+  combined_score: 20.786048519848123
+- sample: sample_20260715_214854_553.json
+  translation_mm: 15.007974626039928
+  rotation_deg: 2.664425136266081
+  reprojection_error_px: 0.708691321507683
+  combined_score: 28.330100307370333
+- sample: sample_20260715_214906_314.json
+  translation_mm: 12.669102403703683
+  rotation_deg: 1.5727621647190435
+  reprojection_error_px: 0.6205336631593191
+  combined_score: 20.5329132272989
+- sample: sample_20260715_214913_386.json
+  translation_mm: 10.789770788799638
+  rotation_deg: 0.8072756241498494
+  reprojection_error_px: 0.6340168214297851
+  combined_score: 14.826148909548884
+- sample: sample_20260715_214927_146.json
+  translation_mm: 17.943203699108132
+  rotation_deg: 2.6296281272215607
+  reprojection_error_px: 0.7277667788950245
+  combined_score: 31.091344335215936
+- sample: sample_20260715_214936_734.json
+  translation_mm: 30.629076334943726
+  rotation_deg: 4.458450672176999
+  reprojection_error_px: 0.6864534879753506
+  combined_score: 52.921329695828724
+- sample: sample_20260715_215304_862.json
+  translation_mm: 8.94127105318065
+  rotation_deg: 1.8473958399847945
+  reprojection_error_px: 0.7163111437379551
+  combined_score: 18.178250253104622
+- sample: sample_20260715_215313_594.json
+  translation_mm: 7.9642924749212645
+  rotation_deg: 0.0
+  reprojection_error_px: 0.6747267071296638
+  combined_score: 7.9642924749212645
+- sample: sample_20260715_215334_331.json
+  translation_mm: 28.493220174942035
+  rotation_deg: 4.492956677297128
+  reprojection_error_px: 0.6638646345751741
+  combined_score: 50.958003561427674
+- sample: sample_20260715_215347_387.json
+  translation_mm: 7.020694674717656
+  rotation_deg: 1.8935895557717282
+  reprojection_error_px: 0.7746519208269592
+  combined_score: 16.488642453576297
+- sample: sample_20260715_215409_915.json
+  translation_mm: 9.227986650478224
+  rotation_deg: 2.258518792949804
+  reprojection_error_px: 0.7998688118573614
+  combined_score: 20.520580615227246
+- sample: sample_20260715_215416_891.json
+  translation_mm: 20.33139411244297
+  rotation_deg: 3.706716143144142
+  reprojection_error_px: 0.7969289550102212
+  combined_score: 38.86497482816368
+- sample: sample_20260715_215423_276.json
+  translation_mm: 16.63655176263575
+  rotation_deg: 2.43107115632619
+  reprojection_error_px: 0.7396014212667653
+  combined_score: 28.7919075442667
+- sample: sample_20260715_215442_202.json
+  translation_mm: 9.438852456850665
+  rotation_deg: 0.7776341849098023
+  reprojection_error_px: 0.6992008877839383
+  combined_score: 13.327023381399677
+validation_residuals:
+- sample: sample_20260715_213952_723.json
+  translation_mm: 12.109665350692438
+  rotation_deg: 1.901402194643057
+  reprojection_error_px: 0.42390494419809793
+- sample: sample_20260715_215006_345.json
+  translation_mm: 24.931452378141216
+  rotation_deg: 3.136336305293361
+  reprojection_error_px: 0.5928084367048533
+used_files:
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213230_905.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213237_179.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213411_870.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213420_333.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213432_512.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213441_754.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213517_514.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213639_738.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213650_009.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213713_915.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213729_905.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213746_034.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213819_770.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213825_259.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213834_619.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213852_420.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213905_849.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213916_379.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213921_354.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_213930_138.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_214018_217.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_214854_553.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_214906_314.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_214913_386.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_214927_146.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_214936_734.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_215304_862.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_215313_594.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_215334_331.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_215347_387.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_215409_915.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_215416_891.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_215423_276.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260715_211312\handeye\samples\sample_20260715_215442_202.png

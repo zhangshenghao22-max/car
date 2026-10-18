@@ -1,0 +1,140 @@
+schema_version: 2
+fixed_source_session: '20260714_171055'
+model: fisheye
+image_size:
+- 1280
+- 720
+camera_matrix:
+- - 723.278123800598
+  - 0.0
+  - 639.8911312609723
+- - 0.0
+  - 726.7009617688941
+  - 285.419457834173
+- - 0.0
+  - 0.0
+  - 1.0
+dist_coeffs:
+- -0.0036981035603691897
+- -0.07940866626144975
+- 0.12567584157504053
+- -0.07495443858780476
+new_camera_matrix:
+- - 660.2017387073939
+  - 0.0
+  - 639.7996030878192
+- - 0.0
+  - 663.3260742895466
+  - 266.11027464255415
+- - 0.0
+  - 0.0
+  - 1.0
+rms: 0.6247436636504244
+used_count: 23
+selection:
+  rule: choose pinhole when within 10 percent of fisheye holdout median
+  candidate_holdout_median_px:
+    pinhole: 1.0453625591732294
+    fisheye: 0.5729730148489237
+  failures: {}
+per_view_errors_px:
+- sample: sample_20260714_171107_829.json
+  image: sample_20260714_171107_829.png
+  error: 0.5795852854033148
+- sample: sample_20260714_171115_763.json
+  image: sample_20260714_171115_763.png
+  error: 0.28241051625619057
+- sample: sample_20260714_171124_035.json
+  image: sample_20260714_171124_035.png
+  error: 0.8788217828945073
+- sample: sample_20260714_171141_781.json
+  image: sample_20260714_171141_781.png
+  error: 0.9639315894894245
+- sample: sample_20260714_171150_547.json
+  image: sample_20260714_171150_547.png
+  error: 0.9204295895785777
+- sample: sample_20260714_171156_533.json
+  image: sample_20260714_171156_533.png
+  error: 0.9492022337567605
+- sample: sample_20260714_171203_397.json
+  image: sample_20260714_171203_397.png
+  error: 0.4082312285854579
+- sample: sample_20260714_171210_884.json
+  image: sample_20260714_171210_884.png
+  error: 0.5061971000136768
+- sample: sample_20260714_171217_492.json
+  image: sample_20260714_171217_492.png
+  error: 0.8915424840049179
+- sample: sample_20260714_171224_259.json
+  image: sample_20260714_171224_259.png
+  error: 0.5304143930381114
+- sample: sample_20260714_171236_227.json
+  image: sample_20260714_171236_227.png
+  error: 0.6075408394235646
+- sample: sample_20260714_171243_700.json
+  image: sample_20260714_171243_700.png
+  error: 0.5385613417549902
+- sample: sample_20260714_171308_863.json
+  image: sample_20260714_171308_863.png
+  error: 0.46160736581644835
+- sample: sample_20260714_171316_979.json
+  image: sample_20260714_171316_979.png
+  error: 0.36389707925982756
+- sample: sample_20260714_171325_600.json
+  image: sample_20260714_171325_600.png
+  error: 0.3551383084719522
+- sample: sample_20260714_171331_137.json
+  image: sample_20260714_171331_137.png
+  error: 0.3887787269718337
+- sample: sample_20260714_171337_772.json
+  image: sample_20260714_171337_772.png
+  error: 0.2998017504080439
+- sample: sample_20260714_171404_693.json
+  image: sample_20260714_171404_693.png
+  error: 0.43481839075161755
+- sample: sample_20260714_171416_612.json
+  image: sample_20260714_171416_612.png
+  error: 0.5907279430306954
+- sample: sample_20260714_171422_787.json
+  image: sample_20260714_171422_787.png
+  error: 0.6252691810041441
+- sample: sample_20260714_171427_771.json
+  image: sample_20260714_171427_771.png
+  error: 0.5589149105583597
+- sample: sample_20260714_171436_516.json
+  image: sample_20260714_171436_516.png
+  error: 0.584121497063316
+- sample: sample_20260714_171441_491.json
+  image: sample_20260714_171441_491.png
+  error: 0.7705052560551833
+used_files:
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171107_829.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171115_763.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171124_035.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171141_781.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171150_547.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171156_533.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171203_397.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171210_884.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171217_492.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171224_259.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171236_227.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171243_700.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171308_863.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171316_979.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171325_600.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171331_137.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171337_772.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171404_693.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171416_612.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171422_787.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171427_771.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171436_516.png
+- D:\project\car2.0\handeye_calibration_platform\handeye_data\v2\sessions\20260714_171055\intrinsics\samples\sample_20260714_171441_491.png
+camera:
+  index: 0
+  width: 1280
+  height: 720
+  fps_requested: 15
+  fps_reported: 15.000015000015
+  rotate_180: true

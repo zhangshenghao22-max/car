@@ -1,0 +1,53 @@
+{
+  "source_step": "C:\\Users\\Administrator\\Desktop\\文件\\study\\小车\\08.C26智能小车(机械臂）资料\\07.图纸资料\\106 C26小车图纸\\106 C26小车图纸\\三维STEP通用格式\\C26双层小车.STEP",
+  "source_size_mb": 54.142,
+  "raw_bbox_mm": {
+    "xmin": -176.62995111613805,
+    "xmax": 81.94995016361904,
+    "ymin": -238.05786546978663,
+    "ymax": 41.94213453021342,
+    "zmin": 218.63675216835983,
+    "zmax": 328.00000000000006,
+    "xlen": 258.5799012797571,
+    "ylen": 280.00000000000006,
+    "zlen": 109.36324783164022
+  },
+  "raw_stl": "D:\\project\\car4.0\\arm_linux\\ros_ws\\src\\robot_urdf\\meshes\\c26\\c26_double_layer_raw.stl",
+  "raw_stl_size_mb": 25.316,
+  "ros_mesh": "D:\\project\\car4.0\\arm_linux\\ros_ws\\src\\robot_urdf\\meshes\\c26\\c26_double_layer.stl",
+  "ros_mesh_size_mb": 25.316,
+  "transform": {
+    "units": "mm_to_m",
+    "ros_x": "raw_y_centered",
+    "ros_y": "negative_raw_x_centered",
+    "ros_z": "raw_z_minus_raw_zmin",
+    "raw_center_mm": [
+      -47.62428283691406,
+      -98.05786323547363,
+      273.3184127807617
+    ],
+    "raw_min_mm": [
+      -176.62428283691406,
+      -238.057861328125,
+      218.63682556152344
+    ],
+    "raw_max_mm": [
+      81.37571716308594,
+      41.942134857177734,
+      328.0
+    ]
+  },
+  "ros_bbox_m": {
+    "xmin": -0.13999999809265137,
+    "ymin": -0.129,
+    "zmin": 0.0,
+    "xmax": 0.13999999809265137,
+    "ymax": 0.129,
+    "zmax": 0.10936317443847657,
+    "xlen": 0.27999999618530275,
+    "ylen": 0.258,
+    "zlen": 0.10936317443847657
+  },
+  "faces": 530904,
+  "vertices": 264787
+}

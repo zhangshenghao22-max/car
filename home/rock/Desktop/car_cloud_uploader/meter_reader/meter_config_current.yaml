@@ -1,0 +1,10 @@
+min_value: 0.0
+max_value: 1.0
+center:
+- 524.0
+- 737.0
+zero_angle: 131.892707622059
+full_angle: 51.14903274192535
+canonical_size: 1024
+rectify_mode: template
+template_path: templates/current_reference_1024.jpg

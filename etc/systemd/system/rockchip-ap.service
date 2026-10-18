@@ -1,0 +1,10 @@
+[Unit]
+Description=Rockchip AP Init
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/start_ap.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+[Unit]
+Description=Initialize RT chassis and connect it to Linux micro-ROS agent
+After=network-online.target rt-microros-agent.service
+Wants=network-online.target rt-microros-agent.service
+
+[Service]
+Type=oneshot
+Environment=RT_SHELL_PORT=/dev/ttyUSB0
+Environment=RT_SHELL_BAUD=1500000
+Environment=RT_IP=10.10.10.30
+Environment=RT_LINUX_IP=10.10.10.31
+Environment=RT_AGENT_PORT=8888
+Environment=RT_ENCODER_MASK=15
+Environment=RT_PID_LIMIT=250
+ExecStart=/usr/bin/python3 /home/rock/Desktop/rt_autostart/rt_chassis_autostart.py
+RemainAfterExit=yes
+TimeoutStartSec=150
+StandardOutput=append:/tmp/rt_chassis_autostart.log
+StandardError=append:/tmp/rt_chassis_autostart.log
+
+[Install]
+WantedBy=multi-user.target

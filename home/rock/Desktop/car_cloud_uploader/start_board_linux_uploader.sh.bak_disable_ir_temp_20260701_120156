@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LOG_DIR="${ROOT_DIR}/runtime/board_uploader"
+PID_FILE="${LOG_DIR}/board_linux_uploader.pid"
+LOG_FILE="${LOG_DIR}/board_linux_uploader.log"
+
+ROS_SETUP="/opt/ros/foxy/setup.bash"
+ROS_WS_SETUP="${HOME}/Desktop/rock_ws/ros_ws/install/setup.bash"
+
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-17}"
+export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-1}"
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
+export FASTRTPS_DEFAULT_PROFILES_FILE="${FASTRTPS_DEFAULT_PROFILES_FILE:-/home/rock/Desktop/rock_ws/fastdds_no_shm.xml}"
+export CAR_CLOUD_SERVER_URL="${CAR_CLOUD_SERVER_URL:-http://115.159.33.216:8765}"
+export CAR_CLOUD_UPLOAD_TOKEN="${CAR_CLOUD_UPLOAD_TOKEN:-car-cloud-upload}"
+export CAR_CLOUD_UPLOADER_ROOT="${CAR_CLOUD_UPLOADER_ROOT:-${ROOT_DIR}}"
+BOARD_URL="${CAR_CLOUD_BOARD_URL:-}"
+export CAR_CLOUD_BOARD_ID="${CAR_CLOUD_BOARD_ID:-rk3588-f103-board}"
+export CAR_CLOUD_BOARD_LABEL="${CAR_CLOUD_BOARD_LABEL:-RK3588 F103 Board}"
+STATE_INTERVAL="${CAR_CLOUD_STATE_INTERVAL:-1.0}"
+FRAME_INTERVAL="${CAR_CLOUD_FRAME_INTERVAL:-2.0}"
+SCAN_RENDER_INTERVAL="${CAR_CLOUD_SCAN_RENDER_INTERVAL:-2.0}"
+MAP_RENDER_INTERVAL="${CAR_CLOUD_MAP_RENDER_INTERVAL:-2.0}"
+SAVED_MAP_SCAN_INTERVAL="${CAR_CLOUD_SAVED_MAP_SCAN_INTERVAL:-5.0}"
+SAVED_MAP_PREVIEW_SYNC_INTERVAL="${CAR_CLOUD_SAVED_MAP_PREVIEW_SYNC_INTERVAL:-30.0}"
+ENABLE_TELEOP="${CAR_CLOUD_ENABLE_TELEOP:-0}"
+TELEOP_INTERVAL="${CAR_CLOUD_TELEOP_INTERVAL:-0.15}"
+TELEOP_TOPIC="${CAR_CLOUD_TELEOP_TOPIC:-/cmd_vel_cmd}"
+ENABLE_AUDIO="${CAR_CLOUD_AUDIO_ENABLED:-1}"
+AUDIO_DEVICE="${CAR_CLOUD_AUDIO_DEVICE:-plughw:CARD=MIC,DEV=0}"
+AUDIO_RATE="${CAR_CLOUD_AUDIO_RATE:-16000}"
+AUDIO_INTERVAL="${CAR_CLOUD_AUDIO_INTERVAL:-2.0}"
+ENABLE_IR_TEMP="${CAR_CLOUD_IR_TEMP_ENABLED:-1}"
+IR_TEMP_PORT="${CAR_CLOUD_IR_TEMP_PORT:-/dev/serial/by-path/platform-fc800000.usb-usb-0:1.1:1.0-port0}"
+IR_TEMP_INTERVAL="${CAR_CLOUD_IR_TEMP_INTERVAL:-2.0}"
+IR_TEMP_TIMEOUT="${CAR_CLOUD_IR_TEMP_TIMEOUT:-1.0}"
+ENABLE_CABINET_NAV_TAKEOVER="${CAR_CLOUD_CABINET_NAV_TAKEOVER_ENABLED:-0}"
+CABINET_TAKEOVER_DEVICE="${CAR_CLOUD_CABINET_TAKEOVER_DEVICE:-/dev/video0}"
+CABINET_TAKEOVER_PREVIEW_WIDTH="${CAR_CLOUD_CABINET_TAKEOVER_PREVIEW_WIDTH:-1280}"
+CABINET_TAKEOVER_PREVIEW_HEIGHT="${CAR_CLOUD_CABINET_TAKEOVER_PREVIEW_HEIGHT:-720}"
+CABINET_TAKEOVER_PREVIEW_INTERVAL="${CAR_CLOUD_CABINET_TAKEOVER_PREVIEW_INTERVAL:-1.2}"
+CABINET_TAKEOVER_CONF="${CAR_CLOUD_CABINET_TAKEOVER_CONF:-0.25}"
+CABINET_TAKEOVER_CMD_VEL_TOPIC="${CAR_CLOUD_CABINET_TAKEOVER_CMD_VEL_TOPIC:-/cmd_vel}"
+CABINET_TAKEOVER_SCAN_TOPIC="${CAR_CLOUD_CABINET_TAKEOVER_SCAN_TOPIC:-/scan}"
+FOREGROUND="${CAR_CLOUD_FOREGROUND:-0}"
+
+mkdir -p "${LOG_DIR}"
+
+if [[ -f "${PID_FILE}" ]]; then
+  PID="$(cat "${PID_FILE}" || true)"
+  if [[ -n "${PID}" ]] && kill -0 "${PID}" 2>/dev/null; then
+    echo "board uploader already running: ${PID}"
+    exit 0
+  fi
+  rm -f "${PID_FILE}"
+fi
+
+set +u
+source "${ROS_SETUP}"
+source "${ROS_WS_SETUP}"
+set -u
+
+CMD=(
+  python3
+  "${ROOT_DIR}/board_linux_uploader.py"
+  --server-url "${CAR_CLOUD_SERVER_URL}"
+  --upload-token "${CAR_CLOUD_UPLOAD_TOKEN}"
+  --board-id "${CAR_CLOUD_BOARD_ID}"
+  --board-label "${CAR_CLOUD_BOARD_LABEL}"
+  --state-interval "${STATE_INTERVAL}"
+  --frame-interval "${FRAME_INTERVAL}"
+  --scan-render-interval "${SCAN_RENDER_INTERVAL}"
+  --map-render-interval "${MAP_RENDER_INTERVAL}"
+  --saved-map-scan-interval "${SAVED_MAP_SCAN_INTERVAL}"
+  --saved-map-preview-sync-interval "${SAVED_MAP_PREVIEW_SYNC_INTERVAL}"
+)
+
+if [[ -n "${BOARD_URL}" ]]; then
+  CMD+=(--board-url "${BOARD_URL}")
+fi
+
+if [[ "${ENABLE_TELEOP}" == "1" || "${ENABLE_TELEOP}" == "true" || "${ENABLE_TELEOP}" == "yes" ]]; then
+  CMD+=(--enable-teleop --teleop-interval "${TELEOP_INTERVAL}" --teleop-topic "${TELEOP_TOPIC}")
+fi
+
+if [[ "${ENABLE_AUDIO}" == "1" || "${ENABLE_AUDIO}" == "true" || "${ENABLE_AUDIO}" == "yes" ]]; then
+  CMD+=(--enable-audio --audio-device "${AUDIO_DEVICE}" --audio-rate "${AUDIO_RATE}" --audio-interval "${AUDIO_INTERVAL}")
+fi
+
+if [[ "${ENABLE_IR_TEMP}" == "1" || "${ENABLE_IR_TEMP}" == "true" || "${ENABLE_IR_TEMP}" == "yes" ]]; then
+  CMD+=(--enable-ir-temperature --ir-temp-port "${IR_TEMP_PORT}" --ir-temp-interval "${IR_TEMP_INTERVAL}" --ir-temp-timeout "${IR_TEMP_TIMEOUT}")
+fi
+
+if [[ "${ENABLE_CABINET_NAV_TAKEOVER}" == "1" || "${ENABLE_CABINET_NAV_TAKEOVER}" == "true" || "${ENABLE_CABINET_NAV_TAKEOVER}" == "yes" ]]; then
+  CMD+=(
+    --enable-cabinet-nav-takeover
+    --cabinet-takeover-device "${CABINET_TAKEOVER_DEVICE}"
+    --cabinet-takeover-preview-width "${CABINET_TAKEOVER_PREVIEW_WIDTH}"
+    --cabinet-takeover-preview-height "${CABINET_TAKEOVER_PREVIEW_HEIGHT}"
+    --cabinet-takeover-preview-interval "${CABINET_TAKEOVER_PREVIEW_INTERVAL}"
+    --cabinet-takeover-conf "${CABINET_TAKEOVER_CONF}"
+    --cabinet-takeover-cmd-vel-topic "${CABINET_TAKEOVER_CMD_VEL_TOPIC}"
+    --cabinet-takeover-scan-topic "${CABINET_TAKEOVER_SCAN_TOPIC}"
+  )
+else
+  CMD+=(--disable-cabinet-nav-takeover)
+fi
+
+if [[ "${FOREGROUND}" == "1" || "${FOREGROUND}" == "true" || "${FOREGROUND}" == "yes" ]]; then
+  exec "${CMD[@]}"
+fi
+
+nohup "${CMD[@]}" >>"${LOG_FILE}" 2>&1 &
+echo $! > "${PID_FILE}"
+sleep 2
+cat "${PID_FILE}"

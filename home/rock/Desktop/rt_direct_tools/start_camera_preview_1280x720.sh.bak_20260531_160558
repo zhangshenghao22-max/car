@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEVICE="${DEVICE:-/dev/video0}"
+WIDTH="${WIDTH:-1280}"
+HEIGHT="${HEIGHT:-720}"
+FPS="${FPS:-15}"
+SINK="${SINK:-autovideosink}"
+
+exec gst-launch-1.0 \
+  v4l2src device="${DEVICE}" \
+  ! "image/jpeg,width=${WIDTH},height=${HEIGHT},framerate=${FPS}/1" \
+  ! jpegdec \
+  ! videoconvert \
+  ! fpsdisplaysink video-sink="${SINK}" text-overlay=true sync=false

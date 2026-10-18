@@ -1,0 +1,103 @@
+camera:
+  device: /dev/v4l/by-id/usb-icSpring_icspring_camera_240929142408-video-index0
+  backend: gstreamer
+  width: 1280
+  height: 720
+  fps: 15
+  rotate_180: true
+  warmup_frames: 8
+  preview_detect_period_s: 0.10
+  preview_close_grace_s: 1.0
+
+paths:
+  intrinsics: /home/rock/Desktop/car_cloud_uploader/vision_calibration/fixed_camera_intrinsics.yaml
+  intrinsics_sha256: B7B638C167B38E506247E1932A0E161FCD280BB1DA7F08EE6801FA9CFA25C835
+
+apriltag:
+  dictionary: DICT_APRILTAG_36h11
+  tag_size_mm: 50.0
+  allowed_ids: [10, 11, 12, 13]
+  preferred_id: 10
+  min_side_px: 24.0
+  max_reprojection_error_px: 2.0
+
+arm:
+  home_pwm: [1640, 1500, 1500, 2250, 1500, 1500]
+  min_pwm: 500
+  max_pwm: 2500
+  move_to_min_duration_ms: 3000
+  move_to_min_timeout_s: 5.5
+  move_to_min_waypoints:
+    - {target_pwm: 1200, duration_ms: 1400, timeout_s: 3.0}
+    - {target_pwm: 800, duration_ms: 1100, timeout_s: 2.7}
+    - {target_pwm: 500, duration_ms: 1000, timeout_s: 2.6}
+  return_home_duration_ms: 2000
+  return_home_timeout_s: 3.5
+
+search:
+  max_duration_s: 15.0
+  targets: [1000, 1500, 1600, 1700, 2000, 2500]
+  segment_duration_ms: 1800
+  step_motion_timeout_margin_s: 1.00
+  step_settle_s: 0.12
+  stationary_frames_per_step: 3
+  detect_interval_s: 0.08
+  window_frames: 5
+  required_frames: 3
+  stop_settle_s: 0.55
+
+alignment:
+  timeout_s: 8.0
+  detect_interval_s: 0.20
+  lost_timeout_s: 0.50
+  tolerance_px: 20.0
+  stable_frames: 3
+  stable_window_frames: 5
+  pwm_per_px: -0.55
+  min_step_pwm: 5
+  max_step_pwm: 30
+  max_total_delta_pwm: 250
+  command_duration_ms: 250
+  command_timeout_s: 1.0
+  command_interval_s: 0.30
+  divergence_increase_px: 10.0
+  divergence_consecutive: 2
+
+ros:
+  arm_topic: /arm_cmd
+  cabinet_cmd_topic: /cmd_vel_cabinet
+  f103_state_topic: /f103_state
+  cabinet_mode_service: /f103_usb_ros2_bridge/cabinet_mode
+  nav_status_topic: /navigate_to_pose/_action/status
+
+safety:
+  ready_timeout_s: 3.0
+  nav_status_timeout_s: 1.0
+  f103_state_timeout_s: 1.2
+  arm_discovery_settle_s: 0.30
+  arm_command_delivery_hold_s: 0.20
+  arm_command_ack_timeout_s: 1.50
+  arm_command_retry_count: 3
+  arm_command_retry_backoff_s: 0.30
+  cabinet_mode_settle_s: 1.20
+  cabinet_zero_publish_period_s: 0.25
+  wheel_stop_tolerance_mm_s: 3
+  servo_target_tolerance_pwm: 12
+  home_axis_tolerance_pwm: 12
+  other_axes_tolerance_pwm: 12
+  other_axes_restore_duration_ms: 2000
+  other_axes_restore_timeout_s: 3.5
+  other_axes_restore_retry_count: 2
+  other_axes_restore_max_events: 3
+  other_axes_s0_stop_timeout_s: 1.0
+  other_axes_s0_stable_s: 0.20
+  other_axes_initial_home_duration_ms: 2000
+  other_axes_initial_home_hold_s: 2.2
+  other_axes_home_refresh_interval_s: 2.0
+  other_axes_home_refresh_duration_ms: 800
+  other_axes_home_refresh_max_count: 10
+  lock_file: /run/user/1000/arm_apriltag_s0_search.lock
+
+output:
+  status_file: /home/rock/Desktop/car_cloud_uploader/runtime/apriltag_s0_search/status.json
+  capture_dir: /home/rock/Desktop/car_cloud_uploader/runtime/apriltag_s0_search/captures

@@ -1,0 +1,910 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import contextlib
+import json
+import math
+import os
+import signal
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import rclpy
+from action_msgs.msg import GoalStatus
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from nav2_msgs.action import NavigateToPose
+from rclpy.action import ActionClient
+from rclpy.executors import SingleThreadedExecutor
+from rclpy.node import Node
+
+
+ROOT_DIR = Path(__file__).resolve().parent
+RUNTIME_DIR = ROOT_DIR / "runtime" / "cloud_nav_command"
+STATUS_PATH = RUNTIME_DIR / "status.json"
+PID_PATH = RUNTIME_DIR / "cruise.pid"
+LOG_PATH = RUNTIME_DIR / "cruise.log"
+GOAL_UPDATE_PATH = RUNTIME_DIR / "goal_update.json"
+GOAL_UPDATE_ACK_PATH = RUNTIME_DIR / "goal_update_ack.json"
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def normalized_yaw_radians(raw: dict[str, Any]) -> float:
+    if "yaw_deg" in raw:
+        yaw = math.radians(float(raw.get("yaw_deg", 0.0)))
+    else:
+        yaw = float(raw.get("yaw", 0.0))
+        # Older cloud commands sometimes placed degree values in `yaw`.
+        if abs(yaw) > math.tau + 1e-6:
+            yaw = math.radians(yaw)
+    return math.atan2(math.sin(yaw), math.cos(yaw))
+
+
+def safe_pose_dict(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise RuntimeError("pose must be an object")
+    try:
+        x = float(raw["x"])
+        y = float(raw["y"])
+        yaw = normalized_yaw_radians(raw)
+    except Exception as exc:
+        raise RuntimeError(f"invalid pose: {exc}") from exc
+    pose: dict[str, Any] = {"x": x, "y": y, "yaw": yaw}
+    label = str(raw.get("label") or "").strip()
+    if label:
+        pose["label"] = label
+    return pose
+
+
+def safe_points(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        raise RuntimeError("points must be a list")
+    points: list[dict[str, Any]] = []
+    for index, item in enumerate(raw, start=1):
+        pose = safe_pose_dict(item)
+        pose["label"] = str(item.get("label") or f"P{index}")
+        points.append(pose)
+    if not points:
+        raise RuntimeError("at least one point is required")
+    return points
+
+
+def safe_goal_refresh(raw: Any) -> dict[str, Any]:
+    payload = raw if isinstance(raw, dict) else {}
+    return {
+        "enabled": bool(payload.get("enabled", True)),
+        "check_interval_s": max(3.0, min(60.0, float(payload.get("check_interval_s", 10.0) or 10.0))),
+        "no_progress_timeout_s": max(3.0, min(60.0, float(payload.get("no_progress_timeout_s", 6.0) or 6.0))),
+        "max_retries": max(0, min(10, int(payload.get("max_retries", 3) or 0))),
+    }
+
+
+def safe_task_meta(raw: Any) -> dict[str, Any]:
+    payload = raw if isinstance(raw, dict) else {}
+    return {
+        "session_id": str(payload.get("session_id") or f"nav-{int(time.time())}-{os.getpid()}").strip(),
+        "map_name": str(payload.get("map_name") or payload.get("map") or "").strip(),
+        "map_source": str(payload.get("map_source") or "selected_map").strip(),
+        "route_source": str(payload.get("route_source") or "temporary").strip(),
+        "start_source": str(payload.get("start_source") or "current_pose").strip(),
+        "goal_refresh": safe_goal_refresh(payload.get("goal_refresh")),
+    }
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def remove_file(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+def acknowledge_goal_update(request: dict[str, Any], status: str, message: str) -> None:
+    write_json(
+        GOAL_UPDATE_ACK_PATH,
+        {
+            "request_id": str(request.get("request_id") or ""),
+            "session_id": str(request.get("session_id") or ""),
+            "status": status,
+            "message": message,
+            "updated_at": utc_now_iso(),
+        },
+    )
+
+
+def consume_goal_update(session_id: str) -> dict[str, Any] | None:
+    request = read_json(GOAL_UPDATE_PATH)
+    if not request:
+        return None
+    remove_file(GOAL_UPDATE_PATH)
+    request_session = str(request.get("session_id") or "").strip()
+    if not request_session or request_session != str(session_id or "").strip():
+        acknowledge_goal_update(request, "rejected", "navigation session changed")
+        return None
+    try:
+        request["goal_pose"] = safe_pose_dict(request.get("goal_pose"))
+    except Exception as exc:
+        acknowledge_goal_update(request, "rejected", str(exc))
+        return None
+    acknowledge_goal_update(request, "accepted", "goal update accepted")
+    return request
+
+
+def merge_status(update: dict[str, Any]) -> dict[str, Any]:
+    current = read_json(STATUS_PATH)
+    current.update(update)
+    current["updated_at"] = utc_now_iso()
+    write_json(STATUS_PATH, current)
+    return current
+
+
+def clear_pid_file() -> None:
+    try:
+        PID_PATH.unlink()
+    except OSError:
+        pass
+
+
+def read_pid() -> int | None:
+    try:
+        value = PID_PATH.read_text(encoding="utf-8").strip()
+        return int(value) if value else None
+    except Exception:
+        return None
+
+
+def pid_alive(pid: int | None) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def point_labels(points: list[dict[str, Any]]) -> list[str]:
+    labels: list[str] = []
+    for index, point in enumerate(points, start=1):
+        label = str(point.get("label") or f"P{index}")
+        labels.append(label)
+    return labels
+
+
+class NavCommandNode(Node):
+    def __init__(self) -> None:
+        super().__init__("cloud_nav_command_bridge")
+        self.initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, "/initialpose", 10)
+        self.stop_pub = self.create_publisher(Twist, "/cmd_vel", 10)
+        self.action_client = ActionClient(self, NavigateToPose, "/navigate_to_pose")
+
+    @staticmethod
+    def _quat_from_yaw(yaw_rad: float) -> tuple[float, float, float, float]:
+        yaw = float(yaw_rad)
+        return (0.0, 0.0, math.sin(yaw / 2.0), math.cos(yaw / 2.0))
+
+    @staticmethod
+    def _yaw_from_quaternion(orientation) -> float:
+        siny_cosp = 2.0 * (float(orientation.w) * float(orientation.z) + float(orientation.x) * float(orientation.y))
+        cosy_cosp = 1.0 - 2.0 * (float(orientation.y) ** 2 + float(orientation.z) ** 2)
+        return math.atan2(siny_cosp, cosy_cosp)
+
+    def publish_stop(self, executor: SingleThreadedExecutor) -> None:
+        message = Twist()
+        for _ in range(5):
+            self.stop_pub.publish(message)
+            executor.spin_once(timeout_sec=0.05)
+            time.sleep(0.05)
+
+    def _cancel_goal(self, goal_handle, executor: SingleThreadedExecutor) -> None:
+        cancel_future = goal_handle.cancel_goal_async()
+        deadline = time.time() + 5.0
+        while not cancel_future.done() and time.time() < deadline:
+            executor.spin_once(timeout_sec=0.1)
+
+    def publish_initialpose(self, pose: dict[str, float], executor: SingleThreadedExecutor) -> None:
+        subscriber_deadline = time.time() + 10.0
+        while self.initialpose_pub.get_subscription_count() < 1 and time.time() < subscriber_deadline:
+            executor.spin_once(timeout_sec=0.1)
+        if self.initialpose_pub.get_subscription_count() < 1:
+            raise RuntimeError("/initialpose has no subscribers")
+        message = PoseWithCovarianceStamped()
+        message.header.frame_id = "map"
+        message.pose.pose.position.x = float(pose["x"])
+        message.pose.pose.position.y = float(pose["y"])
+        qx, qy, qz, qw = self._quat_from_yaw(float(pose.get("yaw", 0.0)))
+        message.pose.pose.orientation.x = qx
+        message.pose.pose.orientation.y = qy
+        message.pose.pose.orientation.z = qz
+        message.pose.pose.orientation.w = qw
+        covariance = [0.0] * 36
+        covariance[0] = 0.25
+        covariance[7] = 0.25
+        covariance[35] = 0.0685
+        message.pose.covariance = covariance
+        for _ in range(3):
+            message.header.stamp = self.get_clock().now().to_msg()
+            self.initialpose_pub.publish(message)
+            executor.spin_once(timeout_sec=0.1)
+            time.sleep(0.15)
+
+    def send_goal(
+        self,
+        pose: dict[str, Any],
+        executor: SingleThreadedExecutor,
+        stop_flag,
+        *,
+        refresh_policy: dict[str, Any],
+        status_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not self.action_client.wait_for_server(timeout_sec=15.0):
+            raise RuntimeError("/navigate_to_pose action server not ready")
+
+        refresh_enabled = bool(refresh_policy.get("enabled", True))
+        check_interval = float(refresh_policy.get("check_interval_s", 10.0))
+        no_progress_timeout = float(refresh_policy.get("no_progress_timeout_s", 6.0))
+        max_retries = int(refresh_policy.get("max_retries", 3))
+        refresh_count = 0
+
+        while True:
+            goal_msg = NavigateToPose.Goal()
+            goal_msg.pose.header.frame_id = "map"
+            goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
+            goal_msg.pose.pose.position.x = float(pose["x"])
+            goal_msg.pose.pose.position.y = float(pose["y"])
+            qx, qy, qz, qw = self._quat_from_yaw(float(pose.get("yaw", 0.0)))
+            goal_msg.pose.pose.orientation.x = qx
+            goal_msg.pose.pose.orientation.y = qy
+            goal_msg.pose.pose.orientation.z = qz
+            goal_msg.pose.pose.orientation.w = qw
+
+            progress = {
+                "last_progress": time.monotonic(),
+                "reference_pose": None,
+                "best_distance": None,
+                "distance_remaining": None,
+                "last_status_write": 0.0,
+            }
+
+            def feedback_callback(feedback_message) -> None:
+                feedback = getattr(feedback_message, "feedback", None)
+                if feedback is None:
+                    return
+                now_mono = time.monotonic()
+                try:
+                    distance = float(feedback.distance_remaining)
+                except Exception:
+                    distance = None
+                pose_msg = getattr(getattr(feedback, "current_pose", None), "pose", None)
+                sample = None
+                if pose_msg is not None:
+                    sample = (
+                        float(pose_msg.position.x),
+                        float(pose_msg.position.y),
+                        self._yaw_from_quaternion(pose_msg.orientation),
+                    )
+                moved = False
+                reference = progress["reference_pose"]
+                if sample is not None:
+                    if reference is None:
+                        progress["reference_pose"] = sample
+                    else:
+                        linear_delta = math.hypot(sample[0] - reference[0], sample[1] - reference[1])
+                        angular_delta = abs(math.atan2(math.sin(sample[2] - reference[2]), math.cos(sample[2] - reference[2])))
+                        if linear_delta >= 0.03 or angular_delta >= math.radians(3.0):
+                            progress["reference_pose"] = sample
+                            moved = True
+                best_distance = progress["best_distance"]
+                if distance is not None:
+                    progress["distance_remaining"] = distance
+                    if best_distance is None or distance <= float(best_distance) - 0.03:
+                        progress["best_distance"] = distance
+                        moved = True
+                if moved:
+                    progress["last_progress"] = now_mono
+                if now_mono - float(progress["last_status_write"]) >= 1.0:
+                    progress["last_status_write"] = now_mono
+                    merge_status(
+                        {
+                            **status_context,
+                            "state": "navigating",
+                            "task_phase": "navigating",
+                            "goal_active": True,
+                            "task_running": True,
+                            "distance_remaining": distance,
+                            "goal_refresh_count": refresh_count,
+                            "last_progress_at": utc_now_iso(),
+                            "message": str(status_context.get("message") or "正在导航"),
+                        }
+                    )
+
+            send_future = self.action_client.send_goal_async(goal_msg, feedback_callback=feedback_callback)
+            while not send_future.done():
+                if stop_flag["stop"]:
+                    self.publish_stop(executor)
+                    raise KeyboardInterrupt()
+                executor.spin_once(timeout_sec=0.1)
+            goal_handle = send_future.result()
+            if goal_handle is None or not goal_handle.accepted:
+                self.publish_stop(executor)
+                raise RuntimeError("navigation goal rejected")
+
+            result_future = goal_handle.get_result_async()
+            next_check = time.monotonic() + check_interval
+            retry_requested = False
+            while not result_future.done():
+                if stop_flag["stop"]:
+                    self._cancel_goal(goal_handle, executor)
+                    self.publish_stop(executor)
+                    raise KeyboardInterrupt()
+                executor.spin_once(timeout_sec=0.1)
+                replacement = consume_goal_update(str(status_context.get("session_id") or ""))
+                if replacement is not None:
+                    self._cancel_goal(goal_handle, executor)
+                    return {"kind": "replacement", "request": replacement}
+                now_mono = time.monotonic()
+                if not refresh_enabled or now_mono < next_check:
+                    continue
+                next_check = now_mono + check_interval
+                stalled_for = now_mono - float(progress["last_progress"])
+                if stalled_for < no_progress_timeout:
+                    continue
+                if refresh_count >= max_retries:
+                    self._cancel_goal(goal_handle, executor)
+                    self.publish_stop(executor)
+                    raise RuntimeError(f"导航失败：目标持续无进展，已重试 {refresh_count} 次")
+                refresh_count += 1
+                merge_status(
+                    {
+                        **status_context,
+                        "state": "stalled",
+                        "task_phase": "stalled",
+                        "goal_active": True,
+                        "task_running": True,
+                        "goal_refresh_count": refresh_count,
+                        "last_goal_refresh_at": utc_now_iso(),
+                        "no_progress_since": utc_now_iso(),
+                        "distance_remaining": progress["distance_remaining"],
+                        "message": f"检测到暂时无进展，正在重新下发当前目标（第 {refresh_count}/{max_retries} 次）",
+                    }
+                )
+                self._cancel_goal(goal_handle, executor)
+                self.publish_stop(executor)
+                retry_requested = True
+                break
+
+            if retry_requested:
+                continue
+            replacement = consume_goal_update(str(status_context.get("session_id") or ""))
+            if replacement is not None:
+                self._cancel_goal(goal_handle, executor)
+                return {"kind": "replacement", "request": replacement}
+            result = result_future.result()
+            return {
+                "kind": "result",
+                "status": int(result.status) if result is not None else GoalStatus.STATUS_UNKNOWN,
+            }
+
+
+def command_set_initial_pose(args: argparse.Namespace) -> int:
+    pose = safe_pose_dict(json.loads(args.pose_json))
+    rclpy.init(args=None)
+    node = NavCommandNode()
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+    try:
+        node.publish_initialpose(pose, executor)
+        merge_status(
+            {
+                "mode": "idle",
+                "task_running": False,
+                "goal_active": False,
+                "start_pose": pose,
+                "message": "initial pose published",
+                "last_result": "initial pose published",
+                "last_error": "",
+            }
+        )
+        print("initial pose published", flush=True)
+        return 0
+    finally:
+        with contextlib.suppress(Exception):
+            node.action_client.destroy()
+        executor.remove_node(node)
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def build_patrol_command(points_json: str, loop_count: int, start_pose_json: str, task_json: str) -> list[str]:
+    return [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "run-cruise",
+        "--points-json",
+        points_json,
+        "--loop-count",
+        str(loop_count),
+        "--start-pose-json",
+        start_pose_json,
+        "--task-json",
+        task_json,
+    ]
+
+
+def command_start_cruise(args: argparse.Namespace) -> int:
+    points = safe_points(json.loads(args.points_json))
+    loop_count = max(1, int(args.loop_count))
+    start_pose = safe_pose_dict(json.loads(args.start_pose_json)) if args.start_pose_json else {}
+    task_meta = safe_task_meta(json.loads(args.task_json or "{}"))
+
+    existing_pid = read_pid()
+    if pid_alive(existing_pid):
+        raise RuntimeError(f"cruise already running: pid={existing_pid}")
+    clear_pid_file()
+    remove_file(GOAL_UPDATE_PATH)
+    remove_file(GOAL_UPDATE_ACK_PATH)
+
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    task_json = json.dumps(task_meta, ensure_ascii=False)
+    command = build_patrol_command(args.points_json, loop_count, args.start_pose_json or "", task_json)
+    with LOG_PATH.open("a", encoding="utf-8") as log_handle:
+        log_handle.write(f"\n[{utc_now_iso()}] start cruise request points={len(points)} loop_count={loop_count}\n")
+        log_handle.flush()
+        kwargs: dict[str, Any] = {
+            "stdout": log_handle,
+            "stderr": log_handle,
+            "cwd": str(ROOT_DIR),
+            "start_new_session": True,
+        }
+        process = subprocess.Popen(command, **kwargs)
+    PID_PATH.write_text(str(process.pid), encoding="utf-8")
+    merge_status(
+        {
+            "mode": "starting",
+            "state": "starting",
+            "task_phase": "starting",
+            "task_running": True,
+            "goal_active": False,
+            "message": f"starting cruise with {len(points)} point(s)",
+            "last_result": "",
+            "last_error": "",
+            "points": points,
+            "point_labels": point_labels(points),
+            "current_index": -1,
+            "loop_index": 0,
+            "loop_count": loop_count,
+            "completed_count": 0,
+            "current_goal": points[0] if points else {},
+            "goal_pose": points[-1] if points else {},
+            "last_goal": {},
+            "start_pose": start_pose,
+            "start_source": task_meta["start_source"],
+            "session_id": task_meta["session_id"],
+            "map": task_meta["map_name"],
+            "active_map": task_meta["map_name"],
+            "map_name": task_meta["map_name"],
+            "map_source": task_meta["map_source"],
+            "route_source": task_meta["route_source"],
+            "goal_refresh": task_meta["goal_refresh"],
+            "goal_refresh_count": 0,
+            "last_goal_refresh_at": "",
+            "no_progress_since": "",
+            "last_progress_at": "",
+            "goal_revision": 1,
+            "goal_replacement_count": 0,
+            "previous_goal": {},
+            "last_goal_replaced_at": "",
+            "goal_update_state": "",
+            "pid": process.pid,
+        }
+    )
+    print(f"cruise started pid={process.pid}", flush=True)
+    return 0
+
+
+def command_stop_cruise(_args: argparse.Namespace) -> int:
+    remove_file(GOAL_UPDATE_PATH)
+    previous = read_json(STATUS_PATH)
+    previous_goal = previous.get("current_goal") if isinstance(previous.get("current_goal"), dict) else {}
+    pid = read_pid()
+    if not pid_alive(pid):
+        clear_pid_file()
+        merge_status(
+            {
+                "mode": "canceled",
+                "state": "canceled",
+                "task_phase": "terminal",
+                "task_running": False,
+                "goal_active": False,
+                "message": "导航已停止",
+                "current_goal": {},
+                "last_goal": previous_goal or previous.get("last_goal", {}),
+                "pid": 0,
+            }
+        )
+        print("no active cruise", flush=True)
+        return 0
+
+    merge_status({"mode": "stopping", "state": "stopping", "task_phase": "terminal", "message": f"正在停止导航 pid={pid}"})
+    os.kill(pid, signal.SIGTERM)
+    deadline = time.time() + 8.0
+    while time.time() < deadline:
+        if not pid_alive(pid):
+            clear_pid_file()
+            merge_status(
+                {
+                    "mode": "canceled",
+                    "state": "canceled",
+                    "task_phase": "terminal",
+                    "task_running": False,
+                    "goal_active": False,
+                    "message": "导航已停止",
+                    "last_result": "导航已停止",
+                    "current_goal": {},
+                    "last_goal": previous_goal or previous.get("last_goal", {}),
+                    "pid": 0,
+                }
+            )
+            print("cruise stopped", flush=True)
+            return 0
+        time.sleep(0.2)
+
+    os.kill(pid, signal.SIGKILL)
+    clear_pid_file()
+    merge_status(
+        {
+            "mode": "canceled",
+            "state": "canceled",
+            "task_phase": "terminal",
+            "task_running": False,
+            "goal_active": False,
+            "message": "导航进程已强制停止",
+            "last_error": "",
+            "current_goal": {},
+            "last_goal": previous_goal or previous.get("last_goal", {}),
+            "pid": 0,
+        }
+    )
+    print("cruise killed", flush=True)
+    return 0
+
+
+def command_replace_goal(args: argparse.Namespace) -> int:
+    goal_pose = safe_pose_dict(json.loads(args.goal_json))
+    status = read_json(STATUS_PATH)
+    pid = read_pid()
+    if not pid_alive(pid) or not bool(status.get("task_running")):
+        raise RuntimeError("no active navigation task")
+    active_session = str(status.get("session_id") or "").strip()
+    requested_session = str(args.session_id or "").strip()
+    if not active_session or requested_session != active_session:
+        raise RuntimeError("navigation session changed")
+
+    request_id = str(args.request_id or f"goal-{int(time.time() * 1000)}").strip()
+    request = {
+        "request_id": request_id,
+        "session_id": requested_session,
+        "map_name": str(args.map_name or "").strip(),
+        "goal_pose": goal_pose,
+        "replace_remaining": True,
+        "requested_at": utc_now_iso(),
+    }
+    remove_file(GOAL_UPDATE_ACK_PATH)
+    write_json(GOAL_UPDATE_PATH, request)
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        ack = read_json(GOAL_UPDATE_ACK_PATH)
+        if str(ack.get("request_id") or "") != request_id:
+            time.sleep(0.05)
+            continue
+        if ack.get("status") == "accepted":
+            print(json.dumps(ack, ensure_ascii=False), flush=True)
+            return 0
+        raise RuntimeError(str(ack.get("message") or "goal update rejected"))
+    raise RuntimeError("navigation worker did not acknowledge goal update")
+
+
+def command_run_cruise(args: argparse.Namespace) -> int:
+    points = safe_points(json.loads(args.points_json))
+    loop_count = max(1, int(args.loop_count))
+    start_pose = safe_pose_dict(json.loads(args.start_pose_json)) if args.start_pose_json else {}
+    task_meta = safe_task_meta(json.loads(args.task_json or "{}"))
+    refresh_policy = task_meta["goal_refresh"]
+    stop_flag = {"stop": False}
+
+    def handle_stop(_signum, _frame):
+        stop_flag["stop"] = True
+
+    signal.signal(signal.SIGTERM, handle_stop)
+    signal.signal(signal.SIGINT, handle_stop)
+
+    rclpy.init(args=None)
+    node = NavCommandNode()
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+    PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
+    try:
+        if start_pose:
+            node.publish_initialpose(start_pose, executor)
+            settle_deadline = time.time() + 4.0
+            while time.time() < settle_deadline:
+                executor.spin_once(timeout_sec=0.1)
+                if stop_flag["stop"]:
+                    raise KeyboardInterrupt()
+        total_points = len(points)
+        completed = 0
+        merge_status(
+            {
+                "mode": "planning",
+                "state": "planning",
+                "task_phase": "planning",
+                "task_running": True,
+                "goal_active": False,
+                "points": points,
+                "point_labels": point_labels(points),
+                "current_index": -1,
+                "loop_index": 0,
+                "loop_count": loop_count,
+                "completed_count": 0,
+                "current_goal": points[0] if points else {},
+                "goal_pose": points[-1] if points else {},
+                "last_goal": {},
+                "start_pose": start_pose,
+                "start_source": task_meta["start_source"],
+                "session_id": task_meta["session_id"],
+                "map": task_meta["map_name"],
+                "active_map": task_meta["map_name"],
+                "map_name": task_meta["map_name"],
+                "map_source": task_meta["map_source"],
+                "route_source": task_meta["route_source"],
+                "goal_refresh": refresh_policy,
+                "goal_refresh_count": 0,
+                "last_goal_refresh_at": "",
+                "no_progress_since": "",
+                "last_progress_at": utc_now_iso(),
+                "goal_revision": 1,
+                "goal_replacement_count": 0,
+                "previous_goal": {},
+                "last_goal_replaced_at": "",
+                "goal_update_state": "",
+                "message": "目标已下发，等待 Nav2 规划路线",
+                "last_error": "",
+                "pid": os.getpid(),
+            }
+        )
+
+        route_replaced = False
+        for loop_index in range(loop_count):
+            for point_index, point in enumerate(points):
+                if stop_flag["stop"]:
+                    raise KeyboardInterrupt()
+                active_point = point
+                active_index = point_index
+                active_loop = loop_index + 1
+                while True:
+                    merge_status(
+                        {
+                            "mode": "navigating",
+                            "state": "navigating",
+                            "task_phase": "navigating",
+                            "task_running": True,
+                            "goal_active": True,
+                            "current_index": active_index,
+                            "loop_index": active_loop,
+                            "current_goal": active_point,
+                            "completed_count": completed,
+                            "no_progress_since": "",
+                            "message": f"正在导航：目标 {active_index + 1}/{total_points}，循环 {active_loop}/{loop_count}",
+                        }
+                    )
+                    status_context = {
+                        "session_id": task_meta["session_id"],
+                        "current_index": active_index,
+                        "loop_index": active_loop,
+                        "current_goal": active_point,
+                        "last_goal": active_point,
+                        "goal_update_state": "accepted" if route_replaced else "",
+                        "message": f"正在导航：目标 {active_index + 1}/{total_points}",
+                    }
+                    outcome = node.send_goal(
+                        active_point,
+                        executor,
+                        stop_flag,
+                        refresh_policy=refresh_policy,
+                        status_context=status_context,
+                    )
+                    if outcome.get("kind") != "replacement":
+                        status_code = int(outcome.get("status", GoalStatus.STATUS_UNKNOWN))
+                        break
+
+                    request = outcome["request"]
+                    previous_goal = active_point
+                    active_point = request["goal_pose"]
+                    active_index = 0
+                    active_loop = 1
+                    points = [active_point]
+                    total_points = 1
+                    loop_count = 1
+                    completed = 0
+                    route_replaced = True
+                    previous_status = read_json(STATUS_PATH)
+                    goal_revision = int(previous_status.get("goal_revision", 0) or 0) + 1
+                    replacement_count = int(previous_status.get("goal_replacement_count", 0) or 0) + 1
+                    merge_status(
+                        {
+                            "mode": "planning",
+                            "state": "planning",
+                            "task_phase": "planning",
+                            "task_running": True,
+                            "goal_active": False,
+                            "points": points,
+                            "point_labels": point_labels(points),
+                            "current_index": 0,
+                            "loop_index": 1,
+                            "loop_count": 1,
+                            "completed_count": 0,
+                            "previous_goal": previous_goal,
+                            "current_goal": active_point,
+                            "goal_pose": active_point,
+                            "route_source": "live_retarget",
+                            "goal_revision": goal_revision,
+                            "goal_replacement_count": replacement_count,
+                            "last_goal_replaced_at": utc_now_iso(),
+                            "goal_update_state": "planning",
+                            "goal_refresh_count": 0,
+                            "last_goal_refresh_at": "",
+                            "no_progress_since": "",
+                            "last_progress_at": utc_now_iso(),
+                            "message": "新终点已接受，正在等待 Nav2 重新规划",
+                        }
+                    )
+                if status_code != GoalStatus.STATUS_SUCCEEDED:
+                    raise RuntimeError(f"goal failed with status {status_code}")
+                completed += 1
+                merge_status(
+                    {
+                        "mode": "navigating",
+                        "state": "navigating",
+                        "task_phase": "navigating",
+                        "task_running": True,
+                        "goal_active": False,
+                        "current_index": active_index,
+                        "loop_index": active_loop,
+                        "current_goal": points[active_index + 1] if active_index + 1 < total_points else {},
+                        "last_goal": active_point,
+                        "completed_count": completed,
+                        "goal_update_state": "accepted" if route_replaced else "",
+                        "message": f"目标 {active_index + 1}/{total_points} 已到达",
+                    }
+                )
+                if route_replaced:
+                    break
+            if route_replaced:
+                break
+
+        merge_status(
+            {
+                "mode": "completed",
+                "state": "completed",
+                "task_phase": "terminal",
+                "task_running": False,
+                "goal_active": False,
+                "current_index": total_points - 1,
+                "loop_index": loop_count,
+                "completed_count": completed,
+                "current_goal": {},
+                "last_goal": points[-1] if points else {},
+                "message": f"导航完成，共到达 {completed} 个目标",
+                "last_result": f"导航完成，共到达 {completed} 个目标",
+                "last_error": "",
+                "pid": 0,
+            }
+        )
+        print(f"cruise completed points={completed}", flush=True)
+        return 0
+    except KeyboardInterrupt:
+        merge_status(
+            {
+                "mode": "canceled",
+                "state": "canceled",
+                "task_phase": "terminal",
+                "task_running": False,
+                "goal_active": False,
+                "current_goal": {},
+                "message": "导航已停止",
+                "last_result": "导航已停止",
+                "pid": 0,
+            }
+        )
+        print("cruise canceled", flush=True)
+        return 130
+    except Exception as exc:
+        merge_status(
+            {
+                "mode": "failed",
+                "state": "failed",
+                "task_phase": "terminal",
+                "task_running": False,
+                "goal_active": False,
+                "current_goal": {},
+                "message": str(exc),
+                "last_error": str(exc),
+                "pid": 0,
+            }
+        )
+        print(f"cruise failed: {exc}", flush=True)
+        return 1
+    finally:
+        clear_pid_file()
+        remove_file(GOAL_UPDATE_PATH)
+        remove_file(GOAL_UPDATE_ACK_PATH)
+        with contextlib.suppress(Exception):
+            node.action_client.destroy()
+        executor.remove_node(node)
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Cloud navigation helper for initial pose and waypoint cruise.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    parser_pose = sub.add_parser("set-initialpose")
+    parser_pose.add_argument("--pose-json", required=True)
+    parser_pose.set_defaults(func=command_set_initial_pose)
+
+    parser_start = sub.add_parser("start-cruise")
+    parser_start.add_argument("--points-json", required=True)
+    parser_start.add_argument("--loop-count", default="1")
+    parser_start.add_argument("--start-pose-json", default="")
+    parser_start.add_argument("--task-json", default="{}")
+    parser_start.set_defaults(func=command_start_cruise)
+
+    parser_run = sub.add_parser("run-cruise")
+    parser_run.add_argument("--points-json", required=True)
+    parser_run.add_argument("--loop-count", default="1")
+    parser_run.add_argument("--start-pose-json", default="")
+    parser_run.add_argument("--task-json", default="{}")
+    parser_run.set_defaults(func=command_run_cruise)
+
+    parser_stop = sub.add_parser("stop-cruise")
+    parser_stop.set_defaults(func=command_stop_cruise)
+
+    parser_replace = sub.add_parser("replace-goal")
+    parser_replace.add_argument("--goal-json", required=True)
+    parser_replace.add_argument("--session-id", required=True)
+    parser_replace.add_argument("--map-name", default="")
+    parser_replace.add_argument("--request-id", default="")
+    parser_replace.set_defaults(func=command_replace_goal)
+
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    return int(args.func(args))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,69 @@
+calibrated: true
+profile_name: default
+
+home_pwm: [1640, 1500, 1500, 2250, 1500, 1500]
+servo_min_pwm: 500
+servo_max_pwm: 2500
+arm_topic: /arm_cmd
+cmd_vel_topic: /cmd_vel_cmd
+
+camera:
+  device: /dev/video0
+  rotate: 180
+  fps: 15
+  preview_width: 1280
+  preview_height: 720
+  final_width: 3264
+  final_height: 2448
+  profile: normal
+
+closed_loop:
+  enabled: true
+  max_iterations: 4
+  settle_s: 1.0
+  center_tolerance: 0.10
+  desired_center: [0.50, 0.50]
+  pan_servo: 0
+  tilt_servo: 3
+  pan_pwm_per_norm_error: -120
+  tilt_pwm_per_norm_error: 120
+  max_step_pwm: 60
+  max_total_pwm_delta: 180
+
+chassis_adjust:
+  enabled: true
+  max_linear: 0.025
+  max_angular: 0.12
+  pulse_s: 0.25
+  max_total_linear_m: 0.20
+  max_total_yaw_rad: 0.18
+  y_gain: -0.018
+  yaw_gain: -0.08
+  x_gain: 0.015
+  min_area_ratio: 0.06
+  max_area_ratio: 0.45
+
+stages:
+  meters:
+    enabled: true
+    calibrated: true
+    label: 仪表盘
+    rough_pwm: [1640, 1500, 1500, 2250, 1500, 1500]
+    rough_duration_ms: 1200
+    target_labels: [dianya, dianliu, yakuang, liukuang]
+    conf: 0.25
+    closed_loop_enabled: false
+    no_digits: true
+    no_meter_readings: false
+  indicator_digit:
+    enabled: true
+    calibrated: true
+    label: 指示灯和数字表
+    rough_pwm: [1640, 1080, 980, 2250, 1500, 1500]
+    rough_duration_ms: 1500
+    target_labels: ["__digits__", green_on, green_off, red_on, red_off]
+    conf: 0.22
+    closed_loop_enabled: false
+    no_digits: false
+    no_meter_readings: true
+    camera_profile: bright
