@@ -10,7 +10,7 @@ WorkingDirectory=/home/rock/Desktop/car_cloud_uploader
 Environment=ROS_DOMAIN_ID=17
 Environment=ROS_LOCALHOST_ONLY=1
 Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-Environment=CAR_CLOUD_SERVER_URL=http://115.159.33.216:8765
+Environment=CAR_CLOUD_SERVER_URL=http://<cloud-host>:8765
 Environment=CAR_CLOUD_UPLOAD_TOKEN=car-cloud-upload
 Environment=CAR_CLOUD_BOARD_ID=rk3588-f103-board
 Environment="CAR_CLOUD_BOARD_LABEL=RK3588 F103 Board"

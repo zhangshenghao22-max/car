@@ -3158,7 +3158,7 @@ def execute_whitelisted_command(command: dict[str, Any], ros_node: RosMirror) ->
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Upload current board mapping/navigation data to the cloud platform server.")
-    parser.add_argument("--server-url", required=True, help="example: http://115.159.33.216:8765")
+    parser.add_argument("--server-url", required=True, help="example: http://<cloud-host>:8765")
     parser.add_argument("--upload-token", required=True, help="must match server CAR_CLOUD_UPLOAD_TOKEN")
     parser.add_argument("--board-url", default="", help="optional local board web app URL, for example http://127.0.0.1:5000")
     parser.add_argument("--board-id", default="rk3588-f103-board", help="board identifier shown in the cloud")

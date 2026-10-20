@@ -95,7 +95,17 @@ sudo systemctl enable --now f103-usb-chassis.service f103-arm-startup-home.servi
   car-cloud-uploader.service car-recognition-worker.service car-vision-stream.service
 ```
 
-注意：`rock_ws/ros_ws/src` 需在板上重新 `colcon build`（本仓库不含 build/install 产物）。
+注意：
+
+- `rock_ws/ros_ws/src` 需在板上重新 `colcon build`（本仓库不含 build/install 产物）。
+- 仓库里的云平台地址统一写成占位符 `http://<cloud-host>:8765`，**部署时必须通过环境变量注入真实地址**，例如创建 `/etc/systemd/system/car-cloud-uploader.service.d/override.conf`：
+
+```ini
+[Service]
+Environment=CAR_CLOUD_SERVER_URL=http://<真实地址>:8765
+```
+
+  或在启动脚本前 `export CAR_CLOUD_SERVER_URL=...`；`board_linux_uploader.py --server-url` 亦可用参数覆盖。
 
 ## 七、备注
 
