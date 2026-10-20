@@ -39,7 +39,7 @@ MANIFEST/                               板上文件哈希清单与本地比对�
 - 底盘：`f103-usb-chassis.service` → `ros2_tools/f103_usb_ros2_bridge.py`（USB CDC 115200）
 - 定位：`/odom_raw` + `/imu/data` → EKF → `/odom`；AMCL + 已保存地图导航
 - 导航：`rt_robot_nav2`（NavfnPlanner + DWB），`rt_robot_nav2_complete.launch.py`
-- 业务：`board_linux_uploader.py`（云端 115.159.33.216:8765）、`board_nav_command.py`（巡航/巡检）
+- 业务：`board_linux_uploader.py`（云端平台上报与指令轮询，服务地址见板端配置）、`board_nav_command.py`（巡航/巡检）
 - 视觉：`recognition_worker.py`（RKNN 常驻）、`camera_yolo_detect.py`、`cabinet_apriltag_inspection.py`
 - 机械臂：`arm_cmd_cli.py`、`board_keyboard_arm_teleop.py`、`f103-arm-startup-home.service`
 
